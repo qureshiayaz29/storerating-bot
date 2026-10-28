@@ -18,7 +18,8 @@ Rejected approaches:
 - **Resume-tailoring bot** — too many failure points in PDF generation, and little value beyond plain ChatGPT/Claude.
 - **Per-user scraping and summarising** — cost grows with users. Work is done once per app and shared.
 - **Storing raw reviews** — grows too fast for free DB tiers. Snapshots and summaries hold the long-term story.
-- **Rendering cards on Cloudflare Workers** — the free plan allows 10 ms CPU per invocation, too little for PNG rendering.
+- **Rendering cards or running the Daily Job in serverless functions** — scraping, Claude batches and Playwright rendering run too long and need a browser. They stay on GitHub Actions.
+- **Cloudflare Workers, Pages and Access** — the Cloudflare connector cannot deploy and is deprecated. Vercel hosts the web parts instead: ayazqureshi.com already runs there and the Vercel connector can link the repo, deploy and read logs.
 - **Separate image and text messages** — doubles Telegram volume. One photo with caption per app.
 - **Paid tier with faster checks** — the bot stays free.
 - **Calling `google-play-scraper` directly from job code** — the library is unofficial and breaks when Google changes the page. All store access goes through the Store Source contract so the library can be swapped in one place.
@@ -30,11 +31,14 @@ Rejected approaches:
 - **User** — a Telegram chat that has sent `/start` to the Bot.
 - **Admin** — Ayaz; identified by `ADMIN_CHAT_ID`.
 - **Admin Command** — `/stats`, `/budget`, `/setbudget`. Works only for the Admin.
-- **Admin Check** — the single function `isAdmin(update)` in the Webhook Worker. True only when `message.from.id` equals `ADMIN_CHAT_ID` and the chat type is `private`.
+- **Admin Check** — the single function `isAdmin(update)` in the Webhook Function. True only when `message.from.id` equals `ADMIN_CHAT_ID` and the chat type is `private`.
 - **App** — a Google Play listing identified by its package name (e.g. `com.whatsapp`).
 - **Watchlist** — the set of Apps a User follows. Maximum 10 Apps.
 - **Watcher** — a User who has a given App in their Watchlist.
-- **Webhook Worker** — the Cloudflare Worker that receives Telegram updates and answers commands and button taps.
+- **Web Project** — the Vercel project `storerating`, built from `web/` (Astro with the Vercel adapter). Holds the Webhook Function, the Stats API and the Dashboard. Deploys on every push to `main`.
+- **Webhook Function** — the Vercel function at `/api/telegram` that receives Telegram updates and answers commands and button taps.
+- **Admin Session** — a signed, httpOnly cookie valid for 12 hours, issued after a Telegram Login whose user ID equals `ADMIN_CHAT_ID`.
+- **Bot Setup Workflow** — `.github/workflows/bot-setup.yml`, run on demand. Calls `setWebhook`, `setMyCommands` (public and Admin scope), `setMyDescription` and `setMyShortDescription` with repository secrets.
 - **Daily Job** — the GitHub Actions workflow that fetches, summarises, renders and sends.
 - **Store Source** — the contract for all store access: `get_listing(package)`, `get_reviews(package, since_id)`, `exists(package)`. Defined once in `contracts/`. No other code talks to a store directly.
 - **Source Adapter** — one implementation of the Store Source. First adapter: `GooglePlayScraperAdapter` (JoMingyu `google-play-scraper`). Possible later adapters: the Node `google-play-scraper` through `google-play-api`, a paid scraping API, the official Play Developer API for Apps a User owns.
@@ -42,7 +46,7 @@ Rejected approaches:
 - **Fallback Source** — the Source Adapter used when the Active Source fails for an App. Selected by `STORE_SOURCE_FALLBACK`. Optional.
 - **Listing** — the normalised App data every Source Adapter returns: `store`, `package`, `name`, `developer`, `icon_url`, `version`, `rating`, `review_count`, `installs_tier`, `size`, `updated_at`, `release_notes`. Missing values are `null`, never adapter-specific.
 - **Review** — the normalised review every Source Adapter returns: `id`, `stars`, `text`, `thumbs_up`, `app_version`, `created_at`. No reviewer name or avatar.
-- **Lookup Adapter** — the TypeScript implementation of `exists` and `get_listing` used by the Webhook Worker for `/add`. Returns the same Listing.
+- **Lookup Adapter** — the TypeScript implementation of `exists` and `get_listing` used by the Webhook Function for `/add`. Returns the same Listing.
 - **Contract Fixtures** — saved raw responses plus the expected Listing and Review JSON in `contracts/fixtures/`. Every Source Adapter and the Lookup Adapter must pass them.
 - **Fetch** — one call to the Active Source for an App's Listing and new Reviews.
 - **Snapshot** — one stored row of an App's listing data for one day.
@@ -55,7 +59,7 @@ Rejected approaches:
 - **Digest Time** — the local time a User receives Daily Updates. Default 11:00, timezone default `Asia/Kolkata`.
 - **Global Pause** — `users.paused = true`. No Updates or Alerts to that User.
 - **App Pause** — `watchlist.paused = true`. No Updates or Alerts for that App to that User.
-- **On-demand Run** — a one-off Daily Job run for Apps that have no Card for today, started by the Webhook Worker through `repository_dispatch`.
+- **On-demand Run** — a one-off Daily Job run for Apps that have no Card for today, started by the Webhook Function through `repository_dispatch`.
 - **New-App Quota** — the maximum number of On-demand Run Apps one User can trigger per day. Value: 5.
 - **On-demand Budget** — the maximum number of On-demand Run Apps across all Users per day. Value: 200.
 - **Action Limit** — the maximum number of add and remove actions one User can do per hour. Value: 20.
@@ -68,22 +72,23 @@ Rejected approaches:
 - **Pace Alert** — the Admin Telegram message sent when projected month-end spend is more than the Monthly Budget, even below 70%.
 - **Kill Switch** — `CLAUDE_ENABLED=false`. Stops every Claude call at once; Updates continue in Degrade Mode.
 - **Event** — one row in the `events` table describing a User action or delivery result.
-- **Dashboard** — the Admin-only web page that shows metrics. Static frontend on Cloudflare Pages.
-- **Stats API** — the Webhook Worker routes under `/admin/api/*` that read the database and return JSON to the Dashboard.
+- **Dashboard** — the Admin-only pages under `/admin` in the Web Project.
+- **Stats API** — the Web Project routes under `/admin/api/*` that read the database and return JSON to the Dashboard.
 - **Daily Stats** — the `daily_stats` table. One row per day of pre-computed metrics, written by the Daily Job.
 
 ## Architecture
 
 | Part | Runs on | Language |
 |---|---|---|
-| Webhook Worker | Cloudflare Workers (free) | TypeScript |
-| Store Source | `contracts/` (JSON Schema), Source Adapters in `job/sources/`, Lookup Adapter in `worker/src/sources/` | Python, TypeScript |
+| Webhook Function | Vercel (Hobby), `web/src/pages/api/telegram.ts` | TypeScript |
+| Store Source | `contracts/` (JSON Schema), Source Adapters in `job/sources/`, Lookup Adapter in `web/src/sources/` | Python, TypeScript |
 | Daily Job | GitHub Actions (cron) | Python 3.11+ |
 | Database | Supabase free (Postgres) | SQL |
 | Summaries | Claude Haiku 5.5, Batch API for scheduled work | — |
 | Card render | Playwright (HTML/CSS + inline SVG chart) in Daily Job | Python |
-| Dashboard | Cloudflare Pages + Cloudflare Access | Astro or HTML + Chart.js |
-| Stats API | Webhook Worker, `/admin/api/*`, behind Cloudflare Access | TypeScript |
+| Dashboard | Vercel, `web/src/pages/admin/`, Telegram Login | Astro + Chart.js |
+| Stats API | Vercel, `web/src/pages/admin/api/`, Admin Session required | TypeScript |
+| Database access from Vercel | Supabase transaction pooler connection string | — |
 
 Store Source layout:
 ```
@@ -95,7 +100,7 @@ job/sources/
   base.py                  # StoreSource protocol, Listing, Review dataclasses, SourceError
   google_play_scraper.py   # GooglePlayScraperAdapter
   registry.py              # STORE_SOURCE / STORE_SOURCE_FALLBACK → adapter
-worker/src/sources/
+web/src/sources/
   lookup.ts                # Lookup Adapter
 ```
 Rules:
@@ -160,7 +165,7 @@ Managing Apps is available anytime from `/apps`: pause or resume one App, remove
 - `daily_stats` — `date` (PK), `users_total`, `users_new`, `dau_active`, `dau_reached`, `blocked_total`, `blocked_new`, `apps_watched`, `updates_sent`, `alerts_sent`, `claude_cost_usd`, `d1_retention`, `d7_retention`, `d30_retention`
 - `events` — `id`, `chat_id`, `event`, `props` (JSON), `ts`
 - `job_runs` — `id`, `started_at`, `finished_at`, `apps_fetched`, `apps_failed`, `reviews_processed`, `claude_calls`, `claude_tokens_in`, `claude_tokens_out`, `cards_rendered`, `sent`, `failed`, `rate_limited`
-- `errors` — `id`, `source` (`store_source` | `claude` | `render` | `telegram` | `worker`), `package`, `message`, `stack`, `ts`
+- `errors` — `id`, `source` (`store_source` | `claude` | `render` | `telegram` | `web`), `package`, `message`, `stack`, `ts`
 
 Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_snapshots` daily for 90 days, then weekly averages. `summaries` kept.
 
@@ -171,8 +176,8 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - `/apps` lists Apps with inline buttons: Pause, Resume, Remove (with confirmation), Add, Pause all.
 - At 10 Apps, `/add` shows the Watchlist with Remove buttons.
 - After `/add`, the User gets an Update for that App immediately:
-  - App already has today's Card → the Worker sends the stored `file_id` at once. No cost.
-  - App has no Card today → the Worker replies with basic listing data, then starts an On-demand Run. The Card arrives in about 2–5 minutes. Adds within 60 seconds share one On-demand Run.
+  - App already has today's Card → the Webhook Function sends the stored `file_id` at once. No cost.
+  - App has no Card today → the Webhook Function replies with basic listing data, then starts an On-demand Run. The Card arrives in about 2–5 minutes. Adds within 60 seconds share one On-demand Run.
 - Remove keeps the App's data. Re-adding the same App the same day sends the stored Card, so add/remove churn costs nothing.
 - Abuse limits:
   - Above the New-App Quota, the App is added, and its first Update arrives at the next Digest Time.
@@ -227,8 +232,8 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - Every rejected Admin Command writes an Event `admin_denied` with the sender's `chat_id`.
 - Admin Commands appear in the command menu only in the Admin's chat (`setMyCommands` with `BotCommandScopeChat`).
 - Admin alerts are sent only to `ADMIN_CHAT_ID`, never to Users.
-- The Webhook Worker rejects requests without the correct `X-Telegram-Bot-Api-Secret-Token` header, so nobody can fake a Telegram update.
-- The Dashboard is behind Cloudflare Access for the Admin email only.
+- The Webhook Function rejects requests without the correct `X-Telegram-Bot-Api-Secret-Token` header, so nobody can fake a Telegram update.
+- The Dashboard and Stats API require an Admin Session.
 
 **Admin**
 - Admin alerts in Telegram: Daily Job failure, Store Source health-check failure, Fallback Source in use, Claude spend over threshold, block-rate spike.
@@ -237,11 +242,12 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - Dashboard: Overview, Retention, Funnel, Apps, Jobs, Errors, Budget.
 
 **Dashboard data**
-- Login: Cloudflare Access in front of both the Dashboard and the Stats API. Policy allows only the Admin email. Login by one-time code sent to that email.
-- The Stats API verifies the `Cf-Access-Jwt-Assertion` header on every request, so the API stays closed even if the Access policy is misconfigured.
+- Login: Telegram Login Widget on `/admin/login`. The server verifies the login hash with HMAC-SHA-256 keyed by SHA-256 of `BOT_TOKEN`, rejects logins older than 1 day, and issues an Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`. Same identity the Bot already trusts; no passwords, no extra auth service.
+- Every `/admin` page and every Stats API route checks the Admin Session. Missing or invalid → redirect to `/admin/login` (pages) or HTTP 401 (API).
+- `/admin` pages send `X-Robots-Tag: noindex`.
 - History comes from Daily Stats. Today's numbers come from live queries on `events`, `users`, `watchlist`, `spend`, `job_runs` and `errors`.
 - No stats files in the repository. The repository is public; all numbers stay in the database.
-- The database credentials live only in the Worker and in repository secrets, never in the Dashboard frontend.
+- The database credentials live only in Vercel environment variables and repository secrets, never in the Dashboard frontend.
 
 | Page | Shows | Source |
 |---|---|---|
@@ -267,78 +273,81 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 9. Create a free Supabase project.
 10. Copy the Supabase connection string.
 11. Add the secrets `BOT_TOKEN`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `ADMIN_CHAT_ID` to this repository.
-12. Create a Cloudflare account.
+12. Add the same values as environment variables in the Vercel project `storerating` once it exists (Phase 3): `BOT_TOKEN`, `DATABASE_URL` (Supabase transaction pooler), `ADMIN_CHAT_ID`, `WEBHOOK_SECRET`, `SESSION_SECRET`, `GITHUB_DISPATCH_TOKEN`.
+13. Set the Bot domain with `/setdomain` in @BotFather to the Dashboard domain, for Telegram Login.
 
 ### Phase 1 — Database
-13. Write the migration file `db/001_init.sql` with every table in "Data model".
-14. Apply `db/001_init.sql` to the Supabase project.
+14. Write the migration file `db/001_init.sql` with every table in "Data model".
+15. Apply `db/001_init.sql` to the Supabase project.
 
 ### Phase 2 — Store Source
-15. Write `contracts/listing.schema.json` for the Listing.
-16. Write `contracts/review.schema.json` for the Review.
-17. Write `job/sources/base.py` with the `StoreSource` protocol, the `Listing` and `Review` dataclasses and `SourceError`.
-18. Write `job/sources/google_play_scraper.py` with `GooglePlayScraperAdapter`.
-19. Map every library field to the Listing and the Review in `GooglePlayScraperAdapter`. Set unknown values to `null`.
-20. Map every library exception to a `SourceError` reason.
-21. Validate the adapter output against the JSON Schemas.
-22. Write `job/sources/registry.py`. Return the Active Source from `STORE_SOURCE` and the Fallback Source from `STORE_SOURCE_FALLBACK`.
-23. Save raw responses for 3 Apps (one large, one small, one removed) to `contracts/fixtures/`.
-24. Write the contract tests. Run every Source Adapter against `contracts/fixtures/`.
-25. Write `worker/src/sources/lookup.ts` with the Lookup Adapter.
-26. Run the Lookup Adapter against `contracts/fixtures/`.
-27. Add a CI check that fails when any file outside `job/sources/` imports `google_play_scraper`.
+16. Write `contracts/listing.schema.json` for the Listing.
+17. Write `contracts/review.schema.json` for the Review.
+18. Write `job/sources/base.py` with the `StoreSource` protocol, the `Listing` and `Review` dataclasses and `SourceError`.
+19. Write `job/sources/google_play_scraper.py` with `GooglePlayScraperAdapter`.
+20. Map every library field to the Listing and the Review in `GooglePlayScraperAdapter`. Set unknown values to `null`.
+21. Map every library exception to a `SourceError` reason.
+22. Validate the adapter output against the JSON Schemas.
+23. Write `job/sources/registry.py`. Return the Active Source from `STORE_SOURCE` and the Fallback Source from `STORE_SOURCE_FALLBACK`.
+24. Save raw responses for 3 Apps (one large, one small, one removed) to `contracts/fixtures/`.
+25. Write the contract tests. Run every Source Adapter against `contracts/fixtures/`.
+26. Write `worker/src/sources/lookup.ts` with the Lookup Adapter.
+27. Run the Lookup Adapter against `contracts/fixtures/`.
+28. Add a CI check that fails when any file outside `job/sources/` imports `google_play_scraper`.
 
-### Phase 3 — Webhook Worker
-28. Create the Worker project in `worker/` with Wrangler.
-29. Add `BOT_TOKEN`, `DATABASE_URL` and `ADMIN_CHAT_ID` as Worker secrets.
-30. Reject every webhook request without the correct `X-Telegram-Bot-Api-Secret-Token` header with HTTP 401.
-31. Implement the Admin Check `isAdmin(update)`.
-32. Route every Admin Command through the Admin Check.
-33. Reply to a rejected Admin Command with the unknown-command reply. Write an Event `admin_denied`.
-34. Set the Admin command menu with `setMyCommands` and `BotCommandScopeChat` for `ADMIN_CHAT_ID`: `stats`, `budget`, `setbudget`.
-35. Implement the `/start` handler. Insert the User into `users`.
-36. Implement the `/add` handler. Validate the package with the Lookup Adapter. Insert the row into `watchlist`. Insert the App into `apps`.
-37. Implement the 10-App limit in the `/add` handler.
-38. Implement the `/apps` handler with inline buttons.
-39. Implement the Pause, Resume and Remove button callbacks with `editMessageText`.
-40. Implement the `/pause` and `/resume` handlers.
-41. Implement the `/settings` handler.
-42. Implement the `/delete` handler.
-43. Write an Event for every handler.
-44. Write an `errors` row for every caught exception.
-45. Deploy the Worker.
-46. Set the Telegram webhook to the Worker URL with `setWebhook` and a secret token.
+### Phase 3 — Webhook Function
+29. Create the Astro project in `web/` with the Vercel adapter.
+30. Create the Vercel project `storerating` linked to this repository with root directory `web/`.
+31. Set the Vercel function region to the region closest to the Supabase project.
+32. Reject every webhook request without the correct `X-Telegram-Bot-Api-Secret-Token` header with HTTP 401.
+33. Implement the Admin Check `isAdmin(update)`.
+34. Route every Admin Command through the Admin Check.
+35. Reply to a rejected Admin Command with the unknown-command reply. Write an Event `admin_denied`.
+36. Set the Admin command menu with `setMyCommands` and `BotCommandScopeChat` for `ADMIN_CHAT_ID`: `stats`, `budget`, `setbudget`.
+37. Implement the `/start` handler. Insert the User into `users`.
+38. Implement the `/add` handler. Validate the package with the Lookup Adapter. Insert the row into `watchlist`. Insert the App into `apps`.
+39. Implement the 10-App limit in the `/add` handler.
+40. Implement the `/apps` handler with inline buttons.
+41. Implement the Pause, Resume and Remove button callbacks with `editMessageText`.
+42. Implement the `/pause` and `/resume` handlers.
+43. Implement the `/settings` handler.
+44. Implement the `/delete` handler.
+45. Write an Event for every handler.
+46. Write an `errors` row for every caught exception.
+47. Push to `main`. Vercel deploys the Web Project.
+48. Write the Bot Setup Workflow.
+49. Run the Bot Setup Workflow. Point the webhook to `https://<domain>/api/telegram` with `WEBHOOK_SECRET`.
 
 ### Phase 4 — Fetch and Snapshots
-47. Create the Python package in `job/`.
-48. Implement the Fetch through `registry.py` for one App.
-49. Use the Fallback Source when the Active Source raises `SourceError` with `blocked`, `rate_limited` or `parse_failed`. Write an `errors` row.
-50. Write the Snapshot to `app_snapshots` with `source_adapter`.
-51. Update `app_cursor` with the newest Review.
-52. Implement the Store Source health check: Fetch `com.whatsapp` with the Active Source and validate the Listing against the JSON Schema.
-53. Send an Admin alert when the health check fails or when the Fallback Source is used.
+50. Create the Python package in `job/`.
+51. Implement the Fetch through `registry.py` for one App.
+52. Use the Fallback Source when the Active Source raises `SourceError` with `blocked`, `rate_limited` or `parse_failed`. Write an `errors` row.
+53. Write the Snapshot to `app_snapshots` with `source_adapter`.
+54. Update `app_cursor` with the newest Review.
+55. Implement the Store Source health check: Fetch `com.whatsapp` with the Active Source and validate the Listing against the JSON Schema.
+56. Send an Admin alert when the health check fails or when the Fallback Source is used.
 
 ### Phase 5 — Alert Events
-54. Implement the diff between today's Snapshot and the previous Snapshot.
-55. Detect each Alert Event type.
-56. Send Alerts to every Watcher without App Pause or Global Pause.
+57. Implement the diff between today's Snapshot and the previous Snapshot.
+58. Detect each Alert Event type.
+59. Send Alerts to every Watcher without App Pause or Global Pause.
 
 ### Phase 6 — Budget Guardrails
-57. Add the table `spend` from "Data model".
-58. Check that the Anthropic Console spend limit equals the Monthly Budget.
-59. Add `MONTHLY_BUDGET_USD` and `CLAUDE_ENABLED` as repository secrets and Worker secrets.
-60. Write the module `job/budget.py` with the Haiku 5.5 standard and batch rates per million tokens.
-61. Implement the function `remaining_today()`: Daily Budget plus unused budget from earlier days this month, minus today's spend in the Spend Ledger.
-62. Implement the function `can_spend(estimated_cost)`. Return false when `CLAUDE_ENABLED` is false or when `estimated_cost` is more than `remaining_today()`.
-63. Implement the token estimate for a prompt before sending.
-64. Reject every prompt with an estimate over 100,000 tokens.
-65. Wrap every Claude call in `can_spend()`.
-66. Write one Spend Ledger row after every Claude call with the token counts from the API response.
-67. Sort Apps in Priority Order before Summaries.
-68. Switch to Degrade Mode when today's spend reaches 80% of the Daily Budget.
-69. Skip the Summary for every App with fewer than 5 new reviews.
-70. Send an Admin alert at 50%, 80% and 100% of the Monthly Budget, once per threshold per month.
-71. Send the Top-up Alert at 70% of the Monthly Budget, once per month. Format:
+60. Add the table `spend` from "Data model".
+61. Check that the Anthropic Console spend limit equals the Monthly Budget.
+62. Add `MONTHLY_BUDGET_USD` and `CLAUDE_ENABLED` as repository secrets and Vercel environment variables.
+63. Write the module `job/budget.py` with the Haiku 5.5 standard and batch rates per million tokens.
+64. Implement the function `remaining_today()`: Daily Budget plus unused budget from earlier days this month, minus today's spend in the Spend Ledger.
+65. Implement the function `can_spend(estimated_cost)`. Return false when `CLAUDE_ENABLED` is false or when `estimated_cost` is more than `remaining_today()`.
+66. Implement the token estimate for a prompt before sending.
+67. Reject every prompt with an estimate over 100,000 tokens.
+68. Wrap every Claude call in `can_spend()`.
+69. Write one Spend Ledger row after every Claude call with the token counts from the API response.
+70. Sort Apps in Priority Order before Summaries.
+71. Switch to Degrade Mode when today's spend reaches 80% of the Daily Budget.
+72. Skip the Summary for every App with fewer than 5 new reviews.
+73. Send an Admin alert at 50%, 80% and 100% of the Monthly Budget, once per threshold per month.
+74. Send the Top-up Alert at 70% of the Monthly Budget, once per month. Format:
     ```
     💰 StoreRating budget at 70%
     Spent $21.00 of $30.00 · $9.00 left
@@ -346,80 +355,82 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
     Top up: https://console.anthropic.com/settings/billing
     To spend more: top up, raise the Console limit, then /setbudget <amount>
     ```
-72. Compute the projected month-end spend as month-to-date spend ÷ days elapsed × days in month.
-73. Send the Pace Alert when the projected month-end spend is more than the Monthly Budget, at most once per 3 days.
-74. Add a `/budget` handler for the Admin only. Reply with the Top-up Alert text for the current state.
-75. Read the Monthly Budget from the `config` table in `job/budget.py` and in the Webhook Worker. Use `MONTHLY_BUDGET_USD` only to seed the row.
-76. Add a `/setbudget <amount>` handler for the Admin only. Update `monthly_budget_usd` in `config`.
-77. Reply to `/setbudget` with the new budget, the new Daily Budget and the reminder: "Check that the Anthropic Console spend limit is at least $<amount>."
-78. Reset the 50%, 70%, 80% and 100% alert flags for the month when the Monthly Budget changes.
-79. Write a test that runs the Summary step with a $0.01 Daily Budget and asserts Degrade Mode.
+75. Compute the projected month-end spend as month-to-date spend ÷ days elapsed × days in month.
+76. Send the Pace Alert when the projected month-end spend is more than the Monthly Budget, at most once per 3 days.
+77. Add a `/budget` handler for the Admin only. Reply with the Top-up Alert text for the current state.
+78. Read the Monthly Budget from the `config` table in `job/budget.py` and in the Webhook Function. Use `MONTHLY_BUDGET_USD` only to seed the row.
+79. Add a `/setbudget <amount>` handler for the Admin only. Update `monthly_budget_usd` in `config`.
+80. Reply to `/setbudget` with the new budget, the new Daily Budget and the reminder: "Check that the Anthropic Console spend limit is at least $<amount>."
+81. Reset the 50%, 70%, 80% and 100% alert flags for the month when the Monthly Budget changes.
+82. Write a test that runs the Summary step with a $0.01 Daily Budget and asserts Degrade Mode.
 
 ### Phase 7 — Summaries
-80. Implement the review filter: star split, junk removal, rank by thumbs-up and recency, cap at 150 reviews per side.
-81. Write the Summary prompt. Return JSON with themes, shares, one short example each and a one-line verdict.
-82. Submit all Apps as one Batch API request.
-83. Poll the batch until it ends.
-84. Fall back to a standard API call for every App without a result at 10:45 local.
-85. Write each Summary to `summaries`.
-86. Log tokens in `job_runs`.
+83. Implement the review filter: star split, junk removal, rank by thumbs-up and recency, cap at 150 reviews per side.
+84. Write the Summary prompt. Return JSON with themes, shares, one short example each and a one-line verdict.
+85. Submit all Apps as one Batch API request.
+86. Poll the batch until it ends.
+87. Fall back to a standard API call for every App without a result at 10:45 local.
+88. Write each Summary to `summaries`.
+89. Log tokens in `job_runs`.
 
 ### Phase 8 — Cards
-87. Move the Card HTML template to `job/card/`.
-88. Render one Card per changed App with Playwright.
-89. Write the caption template. Keep it under 1,024 characters.
+90. Move the Card HTML template to `job/card/`.
+91. Render one Card per changed App with Playwright.
+92. Write the caption template. Keep it under 1,024 characters.
 
 ### Phase 9 — Sending
-90. Implement the send queue with a pace of 25 messages per second overall and 1 per second per chat.
-91. Retry on HTTP 429 after `retry_after` seconds.
-92. Set `users.blocked = true` on HTTP 403.
-93. Send the Card to the first Watcher with `sendPhoto`. Store the returned `file_id` in `cards`.
-94. Send the stored `file_id` to every other Watcher.
-95. Set `disable_notification` on every Update after the first per User per run.
-96. Send Updates per User at their Digest Time.
+93. Implement the send queue with a pace of 25 messages per second overall and 1 per second per chat.
+94. Retry on HTTP 429 after `retry_after` seconds.
+95. Set `users.blocked = true` on HTTP 403.
+96. Send the Card to the first Watcher with `sendPhoto`. Store the returned `file_id` in `cards`.
+97. Send the stored `file_id` to every other Watcher.
+98. Set `disable_notification` on every Update after the first per User per run.
+99. Send Updates per User at their Digest Time.
 
 ### Phase 10 — On-demand Runs
-97. Add the table `on_demand` with `chat_id`, `package`, `requested_at`, `status`.
-98. In the `/add` handler, look up today's Card for the App in `cards`.
-99. Send the stored `file_id` to the User when today's Card exists.
-100. Reply with basic listing data when today's Card does not exist.
-101. Count the User's On-demand Run Apps for today in `on_demand`.
-102. Skip the On-demand Run when the count is at the New-App Quota. Reply that the first Update arrives at the next Digest Time.
-103. Count all On-demand Run Apps for today in `on_demand`.
-104. Skip the On-demand Run when the count is at the On-demand Budget. Send an Admin alert once per day.
-105. Insert a pending row into `on_demand`.
-106. Start the On-demand Run with `repository_dispatch` 60 seconds after the last pending row for that User.
-107. Write `.github/workflows/on-demand.yml` triggered by `repository_dispatch`.
-108. In the On-demand Run, Fetch every pending App, make one standard Claude call per App, render the Card, send it, and store the `file_id` in `cards`.
-109. Set the `on_demand` rows to `done` or `failed`.
-110. Count add and remove actions per User in the last hour from `events`.
-111. Reject the action and reply "Too many changes, try again in a few minutes" when the count is at the Action Limit.
-112. Write an Event `action_limited` for every rejected action.
-113. Show Users with 3 or more `action_limited` Events in one day on the Dashboard.
-114. In the Daily Job, select only Apps with at least one row in `watchlist`.
+100. Add the table `on_demand` with `chat_id`, `package`, `requested_at`, `status`.
+101. In the `/add` handler, look up today's Card for the App in `cards`.
+102. Send the stored `file_id` to the User when today's Card exists.
+103. Reply with basic listing data when today's Card does not exist.
+104. Count the User's On-demand Run Apps for today in `on_demand`.
+105. Skip the On-demand Run when the count is at the New-App Quota. Reply that the first Update arrives at the next Digest Time.
+106. Count all On-demand Run Apps for today in `on_demand`.
+107. Skip the On-demand Run when the count is at the On-demand Budget. Send an Admin alert once per day.
+108. Insert a pending row into `on_demand`.
+109. Start the On-demand Run with `repository_dispatch` 60 seconds after the last pending row for that User.
+110. Write `.github/workflows/on-demand.yml` triggered by `repository_dispatch`.
+111. In the On-demand Run, Fetch every pending App, make one standard Claude call per App, render the Card, send it, and store the `file_id` in `cards`.
+112. Set the `on_demand` rows to `done` or `failed`.
+113. Count add and remove actions per User in the last hour from `events`.
+114. Reject the action and reply "Too many changes, try again in a few minutes" when the count is at the Action Limit.
+115. Write an Event `action_limited` for every rejected action.
+116. Show Users with 3 or more `action_limited` Events in one day on the Dashboard.
+117. In the Daily Job, select only Apps with at least one row in `watchlist`.
 
 ### Phase 11 — Schedule
-115. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
-116. Write the send workflow with a cron every 30 minutes for Digest Times.
-117. Write the Monthly and Quarterly Report workflows.
-118. Write a `job_runs` row at the end of every workflow.
-119. Send an Admin alert when a workflow fails.
+118. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
+119. Write the send workflow with a cron every 30 minutes for Digest Times.
+120. Write the Monthly and Quarterly Report workflows.
+121. Write a `job_runs` row at the end of every workflow.
+122. Send an Admin alert when a workflow fails.
 
 ### Phase 12 — Admin and Dashboard
-120. Implement the `/stats` handler for the Admin only.
-121. Write the stats builder in the Daily Job. Write one `daily_stats` row for yesterday.
-122. Add the Stats API routes `/admin/api/overview`, `/retention`, `/funnel`, `/apps`, `/jobs`, `/errors`, `/budget` to the Webhook Worker.
-123. Verify the `Cf-Access-Jwt-Assertion` header in every Stats API route. Return HTTP 403 when it is missing or invalid.
-124. Build the Dashboard pages in `dashboard/`.
-125. Deploy the Dashboard to Cloudflare Pages.
-126. Protect the Dashboard and `/admin/api/*` with one Cloudflare Access application. Allow only the Admin email. Use one-time code login.
-127. Implement the weekly Admin report Card.
+123. Implement the `/stats` handler for the Admin only.
+124. Write the stats builder in the Daily Job. Write one `daily_stats` row for yesterday.
+125. Add the Stats API routes `/admin/api/overview`, `/retention`, `/funnel`, `/apps`, `/jobs`, `/errors`, `/budget` to the Webhook Function.
+126. Build `/admin/login` with the Telegram Login Widget.
+127. Verify the Telegram Login hash on the server. Reject logins older than 1 day.
+128. Issue the Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`.
+129. Check the Admin Session in every `/admin` page and every Stats API route. Redirect pages to `/admin/login`. Return HTTP 401 from the API.
+130. Build the Dashboard pages in `web/src/pages/admin/`.
+131. Add the domain `storerating.ayazqureshi.com` to the Vercel project.
+132. Implement the weekly Admin report Card.
 
 ### Phase 13 — Launch
-128. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
-129. Add the privacy note to the Bot description and the README.
-130. Test every command with a second Telegram account.
-131. Announce the Bot on LinkedIn and Inside Android.
+133. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
+134. Add the privacy note to the Bot description and the README.
+135. Test every command with a second Telegram account.
+136. Announce the Bot on LinkedIn and Inside Android.
 
 ## Done when
 
@@ -433,7 +444,7 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - `/delete` leaves zero rows for that `chat_id` in `users`, `watchlist` and `events`.
 - Breaking the scraper (wrong field name) sends an Admin alert within one run.
 - `grep -rn "google_play_scraper" --include=*.py . | grep -v "^./job/sources/"` returns nothing.
-- Every Source Adapter and the Lookup Adapter pass the contract tests: `pytest job/tests/test_contracts.py` and `npm test` in `worker/`.
+- Every Source Adapter and the Lookup Adapter pass the contract tests: `pytest job/tests/test_contracts.py` and `npm test` in `web/`.
 - Changing `STORE_SOURCE` to a stub adapter makes the Daily Job run end to end with no other code change.
 - Making the Active Source raise `blocked` for one App switches that App to the Fallback Source, writes an `errors` row and sends an Admin alert.
 - `job_runs` has one row per workflow run with non-zero `apps_fetched`.
@@ -451,11 +462,12 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - `/stats`, `/budget` and `/setbudget` from a second Telegram account get the unknown-command reply and write an `admin_denied` Event.
 - `/stats` sent by the Admin in a group chat gets no Admin reply.
 - The command menu shows `stats`, `budget` and `setbudget` in the Admin's chat and not in a second account's chat.
-- `curl -X POST <worker-url>` without the secret header returns HTTP 401.
+- `curl -X POST https://<domain>/api/telegram` without the secret header returns HTTP 401.
 - Every budget alert ends with the top-up, Console limit and `/setbudget` reminder.
 - With money left for only half the Apps, the Apps with the most Watchers get Summaries first.
-- The Dashboard loads for the Admin email and returns an Access login page for any other email.
-- `curl <worker-url>/admin/api/overview` without an Access token returns HTTP 403.
+- Telegram Login from the Admin account opens the Dashboard; Telegram Login from a second account shows "Not allowed" and sets no cookie.
+- `curl https://<domain>/admin/api/overview` without an Admin Session returns HTTP 401.
+- A push to `main` creates a Vercel production deployment with state `READY`.
 - `daily_stats` has one row per day after the Daily Job.
 - `git grep -i "DATABASE_URL\|stats.json" dashboard/` returns nothing.
 - Adding an App that already has today's Card returns that Card within 2 seconds, and no `on_demand` row is created.
