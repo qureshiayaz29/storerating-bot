@@ -3,3 +3,4 @@ jsonschema[format]>=4.23
 psycopg[binary]>=3.2
 pytest>=8
 anthropic>=2.3,<3
+playwright>=1.48

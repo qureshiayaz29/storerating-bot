@@ -33,7 +33,9 @@ jobs:
           cache-dependency-path: job/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r job/requirements.txt
+        run: |
+          pip install -r job/requirements.txt
+          python -m playwright install --with-deps chromium
 
       - name: Store Source import guard
         run: python ci/check_imports.py
