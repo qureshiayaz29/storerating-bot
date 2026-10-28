@@ -1,0 +1,177 @@
+---
+// Admin Dashboard. Server-rendered: no data or credentials reach browser JavaScript.
+import * as q from '../../admin/queries';
+import { sqlFor } from '../../bot/repo';
+
+const url = process.env.DATABASE_URL;
+if (!url) return new Response('Not configured', { status: 503 });
+const sql = sqlFor(url);
+const [ov, ret, fun, ap, jb, er, bu, li] = await Promise.all([
+  q.overview(sql), q.retention(sql), q.funnel(sql), q.apps(sql), q.jobs(sql), q.errors(sql), q.budgetSection(sql), q.limits(sql),
+]);
+
+const n = (v: unknown) => Number(v ?? 0);
+const pct = (v: unknown) => (v == null ? '–' : `${Math.round(n(v) * 100)}%`);
+const usd = (v: unknown) => `$${n(v).toFixed(2)}`;
+const fmt = (v: number) => (v >= 100 ? Math.round(v).toLocaleString('en-US') : v.toFixed(2));
+const level = (p: number) => (p >= 90 ? 'red' : p >= 70 ? 'amber' : 'green');
+
+function bars(values: number[], labels: string[]) {
+  const w = 600, h = 100;
+  const max = Math.max(1, ...values);
+  const bw = w / Math.max(1, values.length);
+  const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+  const rects = values.map((v, i) => {
+    const bh = Math.max(1, (v / max) * h);
+    return `<rect x="${i * bw + 1}" y="${h - bh}" width="${Math.max(1, bw - 2)}" height="${bh}"><title>${esc(labels[i])}: ${v}</title></rect>`;
+  }).join('');
+  const axis = labels.length ? `<div class="axis"><span>${esc(labels[0])}</span><span>max ${max}</span><span>${esc(labels.at(-1)!)}</span></div>` : '';
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="chart" role="img">${rects}</svg>${axis}`;
+}
+
+const hist = ov.history as unknown as { date: string; dau_active: number; dau_reached: number; users_new: number }[];
+const limitRows = [
+  { name: 'Claude budget', used: li.claude.used, limit: li.claude.limit, unit: 'USD' },
+  ...(li.platform as unknown as { provider: string; resource: string; used: number; limit: number; unit: string }[])
+    .map((p) => ({ name: `${p.provider} ${p.resource.replace('_', ' ')}`, used: p.used, limit: p.limit, unit: p.unit })),
+];
+const f = fun as unknown as Record<string, number>;
+const live = ov.live as unknown as Record<string, number>;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>StoreRating Admin</title>
+    <style is:global>
+      :root { color-scheme: light dark; --bg: #f7f7f5; --card: #fff; --fg: #17181c; --muted: #5d6270; --line: #e4e4e0;
+        --accent: #0e9f6e; --amber: #d97706; --red: #dc2626; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0e1219; --card: #151a23; --fg: #eef1f6; --muted: #9aa4b6;
+        --line: #232b3a; --accent: #34d399; --amber: #fbbf24; --red: #f87171; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+      header { display: flex; justify-content: space-between; align-items: center; padding: 16px; max-width: 1100px; margin: auto; }
+      nav { display: flex; gap: 12px; flex-wrap: wrap; padding: 0 16px; max-width: 1100px; margin: auto; }
+      nav a, header a { color: var(--muted); text-decoration: none; }
+      main { max-width: 1100px; margin: auto; padding: 16px; display: grid; gap: 16px; }
+      section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; overflow-x: auto; }
+      h1 { font-size: 20px; margin: 0; } h2 { font-size: 17px; margin: 0 0 12px; }
+      .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+      .kpi b { display: block; font-size: 24px; } .kpi span { color: var(--muted); font-size: 13px; }
+      table { border-collapse: collapse; width: 100%; font-size: 14px; }
+      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+      th { color: var(--muted); font-weight: 600; }
+      .chart { width: 100%; height: 110px; display: block; } .chart rect { fill: var(--accent); opacity: .85; }
+      .axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin: 4px 0 12px; }
+      .meter { display: flex; align-items: center; gap: 8px; } .meter span { min-width: 3ch; }
+      .bar { flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; min-width: 120px; }
+      .bar i { display: block; height: 100%; } .green i { background: var(--accent); } .amber i { background: var(--amber); } .red i { background: var(--red); }
+      .ok { color: var(--accent); } .bad { color: var(--red); }
+      details summary { cursor: pointer; } pre { white-space: pre-wrap; font-size: 12px; color: var(--muted); }
+      .muted { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <header><h1>StoreRating Admin</h1><a href="/admin/logout">Log out</a></header>
+    <nav>{['overview','retention','funnel','apps','jobs','errors','budget','limits'].map((s) => <a href={`#${s}`}>{s}</a>)}</nav>
+    <main>
+      <section id="overview">
+        <h2>Overview (last 24 hours)</h2>
+        <div class="kpis">
+          <div class="kpi"><b>{live.users}</b><span>users</span></div>
+          <div class="kpi"><b>{live.new_24h}</b><span>new</span></div>
+          <div class="kpi"><b>{live.active_24h}</b><span>active</span></div>
+          <div class="kpi"><b>{live.reached_24h}</b><span>reached</span></div>
+          <div class="kpi"><b>{live.block_rate}%</b><span>blocked the bot</span></div>
+          <div class="kpi"><b>{live.apps}</b><span>apps watched</span></div>
+          <div class="kpi"><b>{usd(live.spend_today)}</b><span>Claude today</span></div>
+        </div>
+        <p class="muted">Reached users, last 30 days</p>
+        <Fragment set:html={bars(hist.map((h) => n(h.dau_reached)), hist.map((h) => h.date))} />
+        <p class="muted">Active users, last 30 days</p>
+        <Fragment set:html={bars(hist.map((h) => n(h.dau_active)), hist.map((h) => h.date))} />
+      </section>
+
+      <section id="retention">
+        <h2>Retention by signup day</h2>
+        <table><tr><th>Day</th><th>New users</th><th>D1</th><th>D7</th><th>D30</th></tr>
+          {(ret as unknown as Record<string, unknown>[]).slice(0, 30).map((r) =>
+            <tr><td>{r.date}</td><td>{r.users_new}</td><td>{pct(r.d1_retention)}</td><td>{pct(r.d7_retention)}</td><td>{pct(r.d30_retention)}</td></tr>)}
+        </table>
+      </section>
+
+      <section id="funnel">
+        <h2>Activation funnel (signups in the last 30 days)</h2>
+        <table><tr><th>Step</th><th>Users</th><th>Of started</th></tr>
+          {[['Started', f.started], ['Added an app', f.added_app], ['Got a first update', f.got_update]].map(([k, v]) =>
+            <tr><td>{k}</td><td>{v}</td><td>{f.started ? `${Math.round((n(v) / f.started) * 100)}%` : '–'}</td></tr>)}
+          <tr><td>Still subscribed on day 7</td><td>{f.day7}</td><td>{f.old_enough ? `${Math.round((f.day7 / f.old_enough) * 100)}% of ${f.old_enough} old enough` : '–'}</td></tr>
+        </table>
+      </section>
+
+      <section id="apps">
+        <h2>Apps</h2>
+        <table><tr><th>App</th><th>Watchers</th><th>Rating</th></tr>
+          {(ap.top as unknown as Record<string, unknown>[]).map((a) => <tr><td>{a.name} <span class="muted">{a.package}</span></td><td>{a.watchers}</td><td>{a.rating ?? '–'}</td></tr>)}
+        </table>
+        <h2 style="margin-top:16px">Failed /add (30 days)</h2>
+        <table>{(ap.failedAdds as unknown as Record<string, unknown>[]).map((r) => <tr><td>{r.reason}</td><td>{r.n}</td></tr>)}</table>
+        <h2 style="margin-top:16px">Store Source errors (7 days)</h2>
+        <table>{(ap.sourceErrors as unknown as Record<string, unknown>[]).map((r) => <tr><td>{r.package}</td><td>{r.n}</td><td class="muted">{r.last}</td></tr>)}</table>
+      </section>
+
+      <section id="jobs">
+        <h2>Job runs</h2>
+        <table><tr><th>Workflow</th><th>Started</th><th>Secs</th><th>OK</th><th>Apps</th><th>Failed</th><th>Reviews</th><th>Claude</th><th>Cards</th><th>Sent</th><th>Send fails</th><th>429s</th></tr>
+          {(jb as unknown as Record<string, unknown>[]).map((r) =>
+            <tr><td>{r.workflow}</td><td>{String(r.started_at).slice(0, 16)}</td><td>{r.seconds ?? '–'}</td>
+              <td class={r.success ? 'ok' : 'bad'}>{r.success == null ? '…' : r.success ? '✓' : '✗'}</td>
+              <td>{r.apps_fetched}</td><td>{r.apps_failed}</td><td>{r.reviews_processed}</td><td>{r.claude_calls}</td>
+              <td>{r.cards_rendered}</td><td>{r.sent}</td><td>{r.failed}</td><td>{r.rate_limited}</td></tr>)}
+        </table>
+      </section>
+
+      <section id="errors">
+        <h2>Latest errors</h2>
+        {(er as unknown as Record<string, unknown>[]).map((r) =>
+          <details><summary><b>{r.source}</b> {r.package ? <span class="muted">{r.package}</span> : null} — {String(r.message).slice(0, 140)} <span class="muted">{String(r.ts).slice(0, 16)}</span></summary>
+            <pre>{r.stack ?? r.message}</pre></details>)}
+      </section>
+
+      <section id="budget">
+        <h2>Claude budget</h2>
+        <div class="kpis">
+          <div class="kpi"><b>{usd(bu.spent)}</b><span>of {usd(bu.budget)} this month</span></div>
+          <div class="kpi"><b>{usd(bu.projected)}</b><span>projected</span></div>
+          <div class="kpi"><b>{bu.costPerUser == null ? '–' : usd(bu.costPerUser)}</b><span>per reached user</span></div>
+        </div>
+        <Fragment set:html={bars((bu.byDay as unknown as { usd: number }[]).map((d) => n(d.usd)), (bu.byDay as unknown as { day: string }[]).map((d) => d.day))} />
+        <table><tr><th>Source</th><th>Batch</th><th>USD</th><th>Tokens in</th><th>Tokens out</th></tr>
+          {(bu.bySource as unknown as Record<string, unknown>[]).map((r) => <tr><td>{r.source}</td><td>{r.batch ? 'yes' : 'no'}</td><td>{usd(r.usd)}</td><td>{n(r.tokens_in).toLocaleString('en-US')}</td><td>{n(r.tokens_out).toLocaleString('en-US')}</td></tr>)}
+        </table>
+        <h2 style="margin-top:16px">Top apps by cost</h2>
+        <table>{(bu.byApp as unknown as Record<string, unknown>[]).map((r) => <tr><td>{r.package}</td><td>{usd(r.usd)}</td></tr>)}</table>
+        <h2 style="margin-top:16px">Flagged users (Action Limit hit 3+ times in a day)</h2>
+        <table>{(bu.flagged as unknown as Record<string, unknown>[]).map((r) => <tr><td>{r.chat_id}</td><td>{r.day}</td><td>{r.hits}</td></tr>)}</table>
+      </section>
+
+      <section id="limits">
+        <h2>Limits</h2>
+        <table><tr><th>Resource</th><th>Used</th><th>Limit</th><th></th></tr>
+          {limitRows.map((r) => {
+            const p = r.limit ? (r.used / r.limit) * 100 : 0;
+            return <tr><td>{r.name}</td><td>{fmt(r.used)} {r.unit}</td><td>{fmt(r.limit)}</td>
+              <td><div class="meter"><div class={`bar ${level(p)}`}><i style={`width:${Math.min(100, p).toFixed(1)}%`}></i></div><span>{Math.round(p)}%</span></div></td></tr>;
+          })}
+        </table>
+        <p class="muted">Vercel figures are self-metered upper bounds. Official numbers: <a href="https://vercel.com/dashboard/usage">Vercel usage</a>.</p>
+        <h2 style="margin-top:16px">GitHub Actions</h2>
+        <table><tr><th>Workflow</th><th>Last success</th><th>Failures (7 days)</th></tr>
+          {(li.workflows as unknown as Record<string, unknown>[]).map((r) => <tr><td>{r.workflow}</td><td>{r.last_success ? String(r.last_success).slice(0, 16) : '–'}</td><td>{r.failures_7d}</td></tr>)}
+        </table>
+      </section>
+    </main>
+  </body>
+</html>

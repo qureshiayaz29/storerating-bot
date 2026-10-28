@@ -11,6 +11,7 @@ export default defineConfig({
     // Bundle server dependencies into the function. The adapter's file copier
     // otherwise creates a self-referencing symlink while copying es5-ext
     // (a dependency of google-play-scraper) and the build fails with ELOOP.
-    ssr: { noExternal: true },
+    // Build only: the dev server needs CommonJS dependencies left external.
+    ssr: { noExternal: process.argv.includes('build') ? true : undefined },
   },
 });

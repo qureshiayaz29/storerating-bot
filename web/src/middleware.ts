@@ -1,10 +1,11 @@
-// Self-Metering for Vercel Usage (PLAN.md → Self-Metering): every request adds
-// one invocation, its wall-clock duration and its response size to fn_metrics.
+// 1. Admin gate (src/lib/admin-gate.ts): every /admin page and Stats API route needs an Admin Session.
+// 2. Self-Metering for Vercel Usage: invocations, duration and response size → fn_metrics.
 
-import { defineMiddleware } from 'astro:middleware';
+import { defineMiddleware, sequence } from 'astro:middleware';
 import { meter, sqlFor } from './bot/repo';
+import { adminGate } from './lib/admin-gate';
 
-export const onRequest = defineMiddleware(async (context, next) => {
+export const metering = defineMiddleware(async (context, next) => {
   const started = performance.now();
   const response = await next();
   const url = process.env.DATABASE_URL;
@@ -19,3 +20,5 @@ export const onRequest = defineMiddleware(async (context, next) => {
   }
   return response;
 });
+
+export const onRequest = sequence(metering, defineMiddleware((ctx, next) => adminGate(ctx, next)));

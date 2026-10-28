@@ -1,0 +1,27 @@
+---
+const bot = process.env.BOT_USERNAME || 'storeratingbot';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>StoreRating Admin</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #17181c; --muted: #5d6270; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0e1219; --fg: #eef1f6; --muted: #9aa4b6; } }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
+        font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px; text-align: center; }
+      p { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>StoreRating Admin</h1>
+      <p>Log in with the Admin Telegram account.</p>
+      <script is:inline async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login={bot} data-size="large"
+        data-auth-url="/admin/auth" data-request-access="write"></script>
+    </main>
+  </body>
+</html>
