@@ -1,0 +1,1 @@
+# storerating-bot
