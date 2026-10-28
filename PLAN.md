@@ -78,6 +78,7 @@ Data flow per day:
 - `app_cursor` — `package` (PK), `last_review_id`, `last_review_at`
 - `summaries` — `package`, `period` (`daily` | `monthly` | `quarterly`), `period_start`, `complaints` (JSON), `praise` (JSON), `verdict`
 - `cards` — `package`, `period`, `period_start`, `telegram_file_id`
+- `on_demand` — `chat_id`, `package`, `requested_at`, `status` (`pending` | `done` | `failed`)
 - `events` — `id`, `chat_id`, `event`, `props` (JSON), `ts`
 - `job_runs` — `id`, `started_at`, `finished_at`, `apps_fetched`, `apps_failed`, `reviews_processed`, `claude_calls`, `claude_tokens_in`, `claude_tokens_out`, `cards_rendered`, `sent`, `failed`, `rate_limited`
 - `errors` — `id`, `source` (`scraper` | `claude` | `render` | `telegram` | `worker`), `package`, `message`, `stack`, `ts`
