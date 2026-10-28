@@ -197,36 +197,36 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 13. Write the migration file `db/001_init.sql` with every table in "Data model".
 14. Apply `db/001_init.sql` to the Supabase project.
 
-### Phase 2 — Webhook Worker
-15. Create the Worker project in `worker/` with Wrangler.
-16. Add `BOT_TOKEN`, `DATABASE_URL` and `ADMIN_CHAT_ID` as Worker secrets.
-17. Implement the `/start` handler. Insert the User into `users`.
-18. Implement the `/add` handler. Validate the package with the Lookup Adapter. Insert the row into `watchlist`. Insert the App into `apps`.
-19. Implement the 10-App limit in the `/add` handler.
-20. Implement the `/apps` handler with inline buttons.
-21. Implement the Pause, Resume and Remove button callbacks with `editMessageText`.
-22. Implement the `/pause` and `/resume` handlers.
-23. Implement the `/settings` handler.
-24. Implement the `/delete` handler.
-25. Write an Event for every handler.
-26. Write an `errors` row for every caught exception.
-27. Deploy the Worker.
-28. Set the Telegram webhook to the Worker URL with `setWebhook` and a secret token.
+### Phase 2 — Store Source
+15. Write `contracts/listing.schema.json` for the Listing.
+16. Write `contracts/review.schema.json` for the Review.
+17. Write `job/sources/base.py` with the `StoreSource` protocol, the `Listing` and `Review` dataclasses and `SourceError`.
+18. Write `job/sources/google_play_scraper.py` with `GooglePlayScraperAdapter`.
+19. Map every library field to the Listing and the Review in `GooglePlayScraperAdapter`. Set unknown values to `null`.
+20. Map every library exception to a `SourceError` reason.
+21. Validate the adapter output against the JSON Schemas.
+22. Write `job/sources/registry.py`. Return the Active Source from `STORE_SOURCE` and the Fallback Source from `STORE_SOURCE_FALLBACK`.
+23. Save raw responses for 3 Apps (one large, one small, one removed) to `contracts/fixtures/`.
+24. Write the contract tests. Run every Source Adapter against `contracts/fixtures/`.
+25. Write `worker/src/sources/lookup.ts` with the Lookup Adapter.
+26. Run the Lookup Adapter against `contracts/fixtures/`.
+27. Add a CI check that fails when any file outside `job/sources/` imports `google_play_scraper`.
 
-### Phase 3 — Store Source
-29. Write `contracts/listing.schema.json` for the Listing.
-30. Write `contracts/review.schema.json` for the Review.
-31. Write `job/sources/base.py` with the `StoreSource` protocol, the `Listing` and `Review` dataclasses and `SourceError`.
-32. Write `job/sources/google_play_scraper.py` with `GooglePlayScraperAdapter`.
-33. Map every library field to the Listing and the Review in `GooglePlayScraperAdapter`. Set unknown values to `null`.
-34. Map every library exception to a `SourceError` reason.
-35. Validate the adapter output against the JSON Schemas.
-36. Write `job/sources/registry.py`. Return the Active Source from `STORE_SOURCE` and the Fallback Source from `STORE_SOURCE_FALLBACK`.
-37. Save raw responses for 3 Apps (one large, one small, one removed) to `contracts/fixtures/`.
-38. Write the contract tests. Run every Source Adapter against `contracts/fixtures/`.
-39. Write `worker/src/sources/lookup.ts` with the Lookup Adapter.
-40. Run the Lookup Adapter against `contracts/fixtures/`.
-41. Add a CI check that fails when any file outside `job/sources/` imports `google_play_scraper`.
+### Phase 3 — Webhook Worker
+28. Create the Worker project in `worker/` with Wrangler.
+29. Add `BOT_TOKEN`, `DATABASE_URL` and `ADMIN_CHAT_ID` as Worker secrets.
+30. Implement the `/start` handler. Insert the User into `users`.
+31. Implement the `/add` handler. Validate the package with the Lookup Adapter. Insert the row into `watchlist`. Insert the App into `apps`.
+32. Implement the 10-App limit in the `/add` handler.
+33. Implement the `/apps` handler with inline buttons.
+34. Implement the Pause, Resume and Remove button callbacks with `editMessageText`.
+35. Implement the `/pause` and `/resume` handlers.
+36. Implement the `/settings` handler.
+37. Implement the `/delete` handler.
+38. Write an Event for every handler.
+39. Write an `errors` row for every caught exception.
+40. Deploy the Worker.
+41. Set the Telegram webhook to the Worker URL with `setWebhook` and a secret token.
 
 ### Phase 4 — Fetch and Snapshots
 42. Create the Python package in `job/`.
