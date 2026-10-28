@@ -35,7 +35,7 @@ Rejected approaches:
 - **App** — a Google Play listing identified by its package name (e.g. `com.whatsapp`).
 - **Watchlist** — the set of Apps a User follows. Maximum 10 Apps.
 - **Watcher** — a User who has a given App in their Watchlist.
-- **Web Project** — the Vercel project `storerating`, built from `web/` (Astro with the Vercel adapter). Holds the Webhook Function, the Stats API and the Dashboard. Deploys on every push to `main`.
+- **Web Project** — the Vercel project `storerating-bot`, built from `web/` (Astro with the Vercel adapter). Holds the Webhook Function, the Stats API and the Dashboard. Deploys on every push to `main`.
 - **Webhook Function** — the Vercel function at `/api/telegram` that receives Telegram updates and answers commands and button taps.
 - **Admin Session** — a signed, httpOnly cookie valid for 12 hours, issued after a Telegram Login whose user ID equals `ADMIN_CHAT_ID`.
 - **Bot Setup Workflow** — `.github/workflows/bot-setup.yml`, run on demand. Calls `setWebhook`, `setMyCommands` (public and Admin scope), `setMyDescription` and `setMyShortDescription` with repository secrets.
@@ -309,7 +309,7 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 6. Create a free Supabase project.
 7. Copy the Supabase connection string. Replace the role with `storerating_app` after Phase 1.
 8. Add the secrets `BOT_TOKEN`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `ADMIN_CHAT_ID` to this repository.
-9. Add the same values as environment variables in the Vercel project `storerating` once it exists (Phase 3): `BOT_TOKEN`, `DATABASE_URL` (Supabase transaction pooler), `ADMIN_CHAT_ID`, `WEBHOOK_SECRET`, `SESSION_SECRET`, `GITHUB_DISPATCH_TOKEN` (fine-grained, this repository only, Actions read and write), `CRON_SECRET`.
+9. Add the same values as environment variables in the Vercel project `storerating-bot` once it exists (Phase 3): `BOT_TOKEN`, `DATABASE_URL` (Supabase transaction pooler), `ADMIN_CHAT_ID`, `WEBHOOK_SECRET`, `SESSION_SECRET`, `GITHUB_DISPATCH_TOKEN` (fine-grained, this repository only, Actions read and write), `CRON_SECRET`.
 10. Set the Bot domain with `/setdomain` in @BotFather to the Dashboard domain, for Telegram Login.
 
 ### Phase 1 — Database
@@ -341,7 +341,7 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 
 ### Phase 3 — Webhook Function
 34. Create the Astro project in `web/` with the Vercel adapter.
-35. Create the Vercel project `storerating` linked to this repository with root directory `web/`.
+35. Create the Vercel project `storerating-bot` linked to this repository with root directory `web/`.
 36. Set the Vercel function region to the region closest to the Supabase project.
 37. Reject every webhook request without the correct `X-Telegram-Bot-Api-Secret-Token` header with HTTP 401.
 38. Implement the Admin Check `isAdmin(update)`.
