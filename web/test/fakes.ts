@@ -15,6 +15,9 @@ export class FakeRepo implements Repo {
     ['action_limit_per_hour', '20'],
   ]);
   spent = 0;
+  cards = new Map<string, { file_id: string; caption: string; period_start: string; created_at: Date }>();
+  onDemand: { chat_id: number; package: string; requested_at: Date; status: string }[] = [];
+  deliveries: { chat_id: number; package: string; kind: string; ref: string; status: string }[] = [];
   now = () => new Date('2026-10-29T06:00:00Z');
 
   async touchUser(chatId: number) {
@@ -83,6 +86,22 @@ export class FakeRepo implements Repo {
   async logError(source: string, pkg: string | null, message: string) {
     this.errors.push({ source, pkg, message });
   }
+  async latestCard(pkg: string, since: Date) {
+    const c = this.cards.get(pkg);
+    return c && c.created_at >= since ? { file_id: c.file_id, caption: c.caption, period_start: c.period_start } : null;
+  }
+  async countOnDemand(since: Date, chatId?: number) {
+    return this.onDemand.filter((o) => o.requested_at >= since && (chatId === undefined || o.chat_id === chatId)).length;
+  }
+  async hasPendingOnDemand(chatId: number, since: Date) {
+    return this.onDemand.some((o) => o.chat_id === chatId && o.status === 'pending' && o.requested_at >= since);
+  }
+  async insertOnDemand(chatId: number, pkg: string) {
+    this.onDemand.push({ chat_id: chatId, package: pkg, requested_at: this.now(), status: 'pending' });
+  }
+  async recordDelivery(chatId: number, pkg: string, kind: string, ref: string, status: string) {
+    this.deliveries.push({ chat_id: chatId, package: pkg, kind, ref, status });
+  }
   async budget(): Promise<BudgetState> {
     return { monthlyBudgetUsd: Number(this.config.get('monthly_budget_usd')), spentUsd: this.spent };
   }
@@ -95,7 +114,8 @@ export class FakeRepo implements Repo {
 }
 
 export interface Sent {
-  kind: 'send' | 'edit' | 'answer';
+  kind: 'send' | 'edit' | 'answer' | 'photo';
+  fileId?: string;
   chatId?: number;
   text?: string;
   keyboard?: Keyboard;
@@ -108,6 +128,9 @@ export class FakeTelegram implements Telegram {
   }
   async editMessage(chatId: number, _id: number, text: string, keyboard?: Keyboard) {
     this.sent.push({ kind: 'edit', chatId, text, keyboard });
+  }
+  async sendPhoto(chatId: number, fileId: string, caption: string) {
+    this.sent.push({ kind: 'photo', chatId, fileId, text: caption });
   }
   async answerCallback(_id: string, text?: string) {
     this.sent.push({ kind: 'answer', text });

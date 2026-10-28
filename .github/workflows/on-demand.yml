@@ -1,0 +1,44 @@
+name: On-demand
+
+# Started by the bot (repository_dispatch) when someone adds an app that has
+# no card today. Runs are queued, never parallel: the first one picks up every
+# pending app, later ones find nothing and exit in seconds.
+
+on:
+  repository_dispatch:
+    types: [on-demand]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: on-demand
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_ENABLED: ${{ vars.CLAUDE_ENABLED || 'true' }}
+      STORE_SOURCE: ${{ vars.STORE_SOURCE || 'google_play_scraper' }}
+      STORE_SOURCE_FALLBACK: ${{ vars.STORE_SOURCE_FALLBACK }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: job/requirements.txt
+      - name: Install
+        run: |
+          pip install -r job/requirements.txt
+          python -m playwright install --with-deps chromium
+          sudo apt-get install -y -q fonts-inter >/dev/null
+      - name: Run
+        run: python -m job.on_demand

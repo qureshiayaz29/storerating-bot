@@ -82,6 +82,13 @@ export interface Repo {
   logEvent(chatId: number | null, event: string, props?: Record<string, unknown>): Promise<void>;
   logError(source: 'store_source' | 'telegram' | 'web', pkg: string | null, message: string, stack?: string): Promise<void>;
 
+  /** Newest daily Card for the App created at or after `since`, if any. */
+  latestCard(pkg: string, since: Date): Promise<{ file_id: string; caption: string; period_start: string } | null>;
+  countOnDemand(since: Date, chatId?: number): Promise<number>;
+  hasPendingOnDemand(chatId: number, since: Date): Promise<boolean>;
+  insertOnDemand(chatId: number, pkg: string): Promise<void>;
+  recordDelivery(chatId: number, pkg: string, kind: 'daily' | 'alert', ref: string, status: 'sent' | 'failed'): Promise<void>;
+
   budget(now: Date): Promise<BudgetState>;
   stats(now: Date): Promise<Stats>;
 }

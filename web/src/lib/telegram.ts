@@ -10,6 +10,7 @@ export interface Telegram {
   sendMessage(chatId: number, text: string, keyboard?: Keyboard): Promise<void>;
   editMessage(chatId: number, messageId: number, text: string, keyboard?: Keyboard): Promise<void>;
   answerCallback(callbackId: string, text?: string): Promise<void>;
+  sendPhoto(chatId: number, fileId: string, caption: string): Promise<void>;
 }
 
 export class TelegramError extends Error {
@@ -62,6 +63,10 @@ export class TelegramApi implements Telegram {
       link_preview_options: { is_disabled: true },
       reply_markup: { inline_keyboard: keyboard ?? [] },
     });
+  }
+
+  sendPhoto(chatId: number, fileId: string, caption: string) {
+    return this.call('sendPhoto', { chat_id: chatId, photo: fileId, caption, parse_mode: 'HTML' });
   }
 
   answerCallback(callbackId: string, text?: string) {

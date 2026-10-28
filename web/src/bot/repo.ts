@@ -118,6 +118,39 @@ export class PgRepo implements Repo {
       values (${source}, ${pkg}, ${message.slice(0, 2000)}, ${stack?.slice(0, 8000) ?? null})`;
   }
 
+  async latestCard(pkg: string, since: Date) {
+    const rows = await this.sql<{ file_id: string; caption: string; period_start: string }[]>`
+      select telegram_file_id as file_id, coalesce(caption, '') as caption, period_start::text as period_start
+      from cards
+      where package = ${pkg} and period = 'daily' and telegram_file_id is not null and created_at >= ${since}
+      order by period_start desc limit 1`;
+    return rows[0] ?? null;
+  }
+
+  async countOnDemand(since: Date, chatId?: number) {
+    const rows = chatId === undefined
+      ? await this.sql<{ n: number }[]>`select count(*)::int as n from on_demand where requested_at >= ${since}`
+      : await this.sql<{ n: number }[]>`
+          select count(*)::int as n from on_demand where requested_at >= ${since} and chat_id = ${chatId}`;
+    return rows[0]?.n ?? 0;
+  }
+
+  async hasPendingOnDemand(chatId: number, since: Date) {
+    const rows = await this.sql`
+      select 1 from on_demand where chat_id = ${chatId} and status = 'pending' and requested_at >= ${since} limit 1`;
+    return rows.length > 0;
+  }
+
+  async insertOnDemand(chatId: number, pkg: string) {
+    await this.sql`insert into on_demand (chat_id, package) values (${chatId}, ${pkg})`;
+  }
+
+  async recordDelivery(chatId: number, pkg: string, kind: 'daily' | 'alert', ref: string, status: 'sent' | 'failed') {
+    await this.sql`
+      insert into deliveries (chat_id, package, kind, ref, status) values (${chatId}, ${pkg}, ${kind}, ${ref}, ${status})
+      on conflict (chat_id, package, kind, ref) do update set status = excluded.status, sent_at = now()`;
+  }
+
   async budget(now: Date): Promise<BudgetState> {
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const [b] = await this.sql<{ budget: string | null; spent: string }[]>`

@@ -285,3 +285,69 @@ describe('other updates', () => {
     expect(listingFor('com.example.app').store).toBe('google_play');
   });
 });
+
+describe('On-demand Runs after /add', () => {
+  let dispatches = 0;
+  beforeEach(() => {
+    dispatches = 0;
+    deps.dispatch = async () => {
+      dispatches++;
+    };
+  });
+
+  it("sends today's Card at once when it exists, with no run and no cost", async () => {
+    repo.cards.set('com.example.notes', { file_id: 'F1', caption: 'cap', period_start: '2026-10-29', created_at: repo.now() });
+    await send(msg('/add com.example.notes'));
+    expect(tg.sent.find((s) => s.kind === 'photo')).toMatchObject({ chatId: USER, fileId: 'F1', text: 'cap' });
+    expect(repo.deliveries).toEqual([{ chat_id: USER, package: 'com.example.notes', kind: 'daily', ref: '2026-10-29', status: 'sent' }]);
+    expect(dispatches).toBe(0);
+    expect(repo.onDemand).toHaveLength(0);
+  });
+
+  it('ignores a Card older than 30 hours', async () => {
+    repo.cards.set('com.example.notes', { file_id: 'F1', caption: 'c', period_start: '2026-10-27', created_at: new Date('2026-10-27T00:00:00Z') });
+    await send(msg('/add com.example.notes'));
+    expect(tg.sent.some((s) => s.kind === 'photo')).toBe(false);
+    expect(dispatches).toBe(1);
+  });
+
+  it('starts one run for adds within 60 seconds', async () => {
+    for (const p of ['a', 'b', 'c', 'd', 'e']) await send(msg(`/add com.example.${p}`));
+    expect(repo.onDemand).toHaveLength(5);
+    expect(dispatches).toBe(1);
+    expect(tg.last().text).toContain('Full report coming in a few minutes');
+  });
+
+  it('the 6th new app in a day waits for the digest (New-App Quota)', async () => {
+    for (const p of ['a', 'b', 'c', 'd', 'e', 'f']) await send(msg(`/add com.example.${p}`));
+    expect(repo.onDemand).toHaveLength(5);
+    expect(tg.last().text).toContain('First update at 11:00');
+    expect(repo.events.at(-1)).toMatchObject({ event: 'on_demand_skipped', props: { reason: 'user_quota' } });
+  });
+
+  it('the On-demand Budget stops runs for everyone and alerts the Admin once', async () => {
+    repo.config.set('on_demand_budget_per_day', '2');
+    await send(msg('/add com.example.a', 1));
+    await send(msg('/add com.example.b', 2));
+    await send(msg('/add com.example.c', 3));
+    await send(msg('/add com.example.d', 4));
+    expect(repo.onDemand).toHaveLength(2);
+    expect(tg.sent.filter((s) => s.chatId === ADMIN && s.text?.includes('On-demand Budget'))).toHaveLength(1);
+  });
+
+  it('without a dispatcher the first update waits for the digest', async () => {
+    deps.dispatch = undefined;
+    await send(msg('/add com.example.notes'));
+    expect(repo.onDemand).toHaveLength(0);
+    expect(tg.last().text).toContain('First update at');
+  });
+
+  it('a failed dispatch is logged and the user is told about the digest', async () => {
+    deps.dispatch = async () => {
+      throw new Error('repository_dispatch failed: 401');
+    };
+    await send(msg('/add com.example.notes'));
+    expect(repo.errors[0].message).toContain('401');
+    expect(tg.last().text).toContain('First update at');
+  });
+});

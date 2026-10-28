@@ -11,9 +11,13 @@ export interface Deps {
   lookup: LookupSource;
   adminChatId: number;
   now?: () => Date;
+  /** Starts an On-demand Run (GitHub repository_dispatch). Absent in tests that do not need it. */
+  dispatch?: () => Promise<void>;
 }
 
-const DEFAULTS = { watchlistMax: 10, actionLimitPerHour: 20 };
+const DEFAULTS = { watchlistMax: 10, actionLimitPerHour: 20, newAppQuota: 5, onDemandBudget: 200 };
+const DEBOUNCE_MS = 60_000;
+const CARD_FRESH_MS = 30 * 60 * 60 * 1000;
 const ADMIN_COMMANDS = new Set(['/stats', '/budget', '/setbudget']);
 
 export const TEXT = {
@@ -177,11 +181,60 @@ async function addApp(chatId: number, input: string, deps: Deps): Promise<void> 
   await repo.logEvent(chatId, 'add_app', { package: app.package });
   const user = await repo.getUser(chatId);
   const when = user ? `${user.digest_time} (${user.timezone})` : '11:00';
+  const head = `✅ Watching <b>${escapeHtml(app.name ?? app.package)}</b>${details ? `\n${details}` : ''}`;
+
+  // Today's Card already exists (someone else watches this App): send it now, at no cost.
+  const card = await repo.latestCard(app.package, new Date(now.getTime() - CARD_FRESH_MS));
+  if (card) {
+    await tg.sendMessage(chatId, `${head}\n\nHere's today's update. Next one at ${escapeHtml(when)}. Manage with /apps.`);
+    await tg.sendPhoto(chatId, card.file_id, card.caption);
+    await repo.recordDelivery(chatId, app.package, 'daily', card.period_start, 'sent');
+    await repo.logEvent(chatId, 'update_sent', { package: app.package, instant: true });
+    return;
+  }
+
+  const startedRun = await startOnDemand(chatId, app.package, deps, now);
   await tg.sendMessage(
     chatId,
-    `✅ Watching <b>${escapeHtml(app.name ?? app.package)}</b>${details ? `\n${details}` : ''}\n\n` +
-      `Daily update at ${escapeHtml(when)} when something changes. Manage with /apps.`,
+    startedRun
+      ? `${head}\n\n⏳ Full report coming in a few minutes. After that, daily at ${escapeHtml(when)}. Manage with /apps.`
+      : `${head}\n\nFirst update at ${escapeHtml(when)}. Manage with /apps.`,
   );
+}
+
+/** Queue an On-demand Run within the New-App Quota and On-demand Budget. Returns false when skipped. */
+async function startOnDemand(chatId: number, pkg: string, deps: Deps, now: Date): Promise<boolean> {
+  const { repo } = deps;
+  if (!deps.dispatch) return false;
+  const day = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const quota = await configInt(repo, 'new_app_quota_per_user_per_day', DEFAULTS.newAppQuota);
+  if ((await repo.countOnDemand(day, chatId)) >= quota) {
+    await repo.logEvent(chatId, 'on_demand_skipped', { reason: 'user_quota', package: pkg });
+    return false;
+  }
+  const budget = await configInt(repo, 'on_demand_budget_per_day', DEFAULTS.onDemandBudget);
+  if ((await repo.countOnDemand(day)) >= budget) {
+    await repo.logEvent(chatId, 'on_demand_skipped', { reason: 'global_budget', package: pkg });
+    const flag = `on_demand_budget_alert:${now.toISOString().slice(0, 10)}`;
+    if (!(await repo.getConfig(flag))) {
+      await repo.setConfig(flag, '1');
+      await deps.tg.sendMessage(deps.adminChatId, `⚠️ On-demand Budget reached: ${budget} new apps in 24 hours. New apps now wait for the next digest.`);
+    }
+    return false;
+  }
+  // Adds within 60 seconds share one run: only the first one dispatches.
+  const recent = await repo.hasPendingOnDemand(chatId, new Date(now.getTime() - DEBOUNCE_MS));
+  await repo.insertOnDemand(chatId, pkg);
+  if (recent) return true;
+  try {
+    await deps.dispatch();
+    await repo.logEvent(chatId, 'on_demand_started', { package: pkg });
+    return true;
+  } catch (e) {
+    const err = e as Error;
+    await repo.logError('web', pkg, `on-demand dispatch failed: ${err.message}`, err.stack);
+    return false;
+  }
 }
 
 function listingLine(l: { rating: number | null; version: string | null; installs_tier: string | null }): string {

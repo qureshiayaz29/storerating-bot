@@ -8,6 +8,7 @@ import { PgRepo, sqlFor } from '../../bot/repo';
 import type { TgUpdate } from '../../bot/types';
 import { readEnv, safeEqual } from '../../lib/env';
 import { TelegramApi } from '../../lib/telegram';
+import { githubDispatcher } from '../../lib/dispatch';
 import { NodeScraperLookup } from '../../sources/lookup';
 
 export const POST: APIRoute = async ({ request }) => {
@@ -34,6 +35,9 @@ export const POST: APIRoute = async ({ request }) => {
       tg: new TelegramApi(env.botToken),
       lookup: new NodeScraperLookup(),
       adminChatId: env.adminChatId,
+      dispatch: process.env.GITHUB_DISPATCH_TOKEN
+        ? githubDispatcher(process.env.GITHUB_DISPATCH_TOKEN, process.env.GITHUB_REPO || 'qureshiayaz29/storerating-bot')
+        : undefined,
     });
   } catch (e) {
     const err = e as Error;

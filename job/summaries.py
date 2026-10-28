@@ -116,8 +116,8 @@ def build_prompt(out: FetchOutcome, context: str = "") -> str:
                          n_good=len(good), good=_lines(good))
 
 
-def prepare(out: FetchOutcome, batch: bool, context: str = "") -> PreparedRequest | None:
-    if out.first_run or len(out.reviews) < MIN_NEW_REVIEWS:
+def prepare(out: FetchOutcome, batch: bool, context: str = "", allow_first_run: bool = False) -> PreparedRequest | None:
+    if (out.first_run and not allow_first_run) or len(out.reviews) < MIN_NEW_REVIEWS:
         return None
     prompt = build_prompt(out, context)
     tokens_in = budget.estimate_tokens(SYSTEM + prompt)
