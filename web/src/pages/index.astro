@@ -1,0 +1,35 @@
+---
+export const prerender = true;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StoreRating</title>
+    <meta name="description" content="A free Telegram bot that watches Google Play apps: rating moves, new releases, top complaints and 1★ spikes." />
+    <style>
+      :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #17181c; --muted: #5d6270; --accent: #0e9f6e; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0e1219; --fg: #eef1f6; --muted: #9aa4b6; --accent: #34d399; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
+        font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px; }
+      main { max-width: 560px; }
+      h1 { font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+      p { color: var(--muted); margin: 0 0 16px; }
+      a.cta { display: inline-block; margin-top: 8px; padding: 12px 20px; border-radius: 10px; background: var(--accent);
+        color: #06221a; font-weight: 600; text-decoration: none; }
+      img { width: 100%; border-radius: 12px; margin: 24px 0 8px; }
+      small { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>StoreRating</h1>
+      <p>A free Telegram bot that watches Google Play apps and tells you what changed: rating moves, new releases, top complaints and sudden 1★ spikes.</p>
+      <a class="cta" href="https://t.me/storeratingbot">Open in Telegram</a>
+      <img src="/card_daily.png" alt="Example daily card: rating, 30-day chart with release markers, top complaints" />
+      <small>We store your chat ID, timezone, settings and watchlist. Nothing else. /delete removes it all. Not affiliated with Google.</small>
+    </main>
+  </body>
+</html>

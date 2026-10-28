@@ -57,3 +57,29 @@ jobs:
           out=$(psql -h localhost -U postgres -At -c "set role anon; select count(*) from users;" 2>&1 || true)
           echo "$out"
           echo "$out" | grep -q "permission denied"
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx astro sync && npm run check
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build

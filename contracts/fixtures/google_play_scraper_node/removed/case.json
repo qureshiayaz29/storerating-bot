@@ -1,0 +1,10 @@
+{
+  "package": "com.example.gone",
+  "kind": "removed",
+  "synthetic": true,
+  "raises": {
+    "message": "App not found (404)",
+    "status": 404
+  },
+  "expected_reason": "not_found"
+}

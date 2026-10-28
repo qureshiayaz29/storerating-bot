@@ -1,0 +1,6 @@
+{
+  "package": "io.example.tinytodo",
+  "kind": "small",
+  "synthetic": true,
+  "expected": "../../google_play_scraper/small/expected_listing.json"
+}

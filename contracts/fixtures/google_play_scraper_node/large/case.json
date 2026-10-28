@@ -1,0 +1,6 @@
+{
+  "package": "com.example.chatlarge",
+  "kind": "large",
+  "synthetic": true,
+  "expected": "../../google_play_scraper/large/expected_listing.json"
+}

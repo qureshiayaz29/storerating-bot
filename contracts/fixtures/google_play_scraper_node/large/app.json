@@ -1,0 +1,19 @@
+{
+  "appId": "com.example.chatlarge",
+  "title": "ChatLarge Messenger",
+  "developer": "Example Corp",
+  "icon": "https://play-lh.googleusercontent.com/example-icon-large",
+  "version": "VARY",
+  "score": 4.18734,
+  "ratings": 19873210,
+  "histogram": {
+    "1": 1803210,
+    "2": 402110,
+    "3": 903221,
+    "4": 2004433,
+    "5": 14760236
+  },
+  "installs": "5,000,000,000+",
+  "updated": 1793145600000,
+  "recentChanges": "Bug fixes and performance improvements."
+}
