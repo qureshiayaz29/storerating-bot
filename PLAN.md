@@ -21,6 +21,7 @@ Rejected approaches:
 - **Rendering cards on Cloudflare Workers** — the free plan allows 10 ms CPU per invocation, too little for PNG rendering.
 - **Separate image and text messages** — doubles Telegram volume. One photo with caption per app.
 - **Paid tier with faster checks** — the bot stays free.
+- **Calling `google-play-scraper` directly from job code** — the library is unofficial and breaks when Google changes the page. All store access goes through the Store Source contract so the library can be swapped in one place.
 - **"Play" in the name** — "Google Play" is a Google trademark.
 
 ## Terms
@@ -33,7 +34,15 @@ Rejected approaches:
 - **Watcher** — a User who has a given App in their Watchlist.
 - **Webhook Worker** — the Cloudflare Worker that receives Telegram updates and answers commands and button taps.
 - **Daily Job** — the GitHub Actions workflow that fetches, summarises, renders and sends.
-- **Fetch** — one scrape of an App's listing and new reviews.
+- **Store Source** — the contract for all store access: `get_listing(package)`, `get_reviews(package, since_id)`, `exists(package)`. Defined once in `contracts/`. No other code talks to a store directly.
+- **Source Adapter** — one implementation of the Store Source. First adapter: `GooglePlayScraperAdapter` (JoMingyu `google-play-scraper`). Possible later adapters: the Node `google-play-scraper` through `google-play-api`, a paid scraping API, the official Play Developer API for Apps a User owns.
+- **Active Source** — the Source Adapter selected by `STORE_SOURCE`. Changed without code edits.
+- **Fallback Source** — the Source Adapter used when the Active Source fails for an App. Selected by `STORE_SOURCE_FALLBACK`. Optional.
+- **Listing** — the normalised App data every Source Adapter returns: `store`, `package`, `name`, `developer`, `icon_url`, `version`, `rating`, `review_count`, `installs_tier`, `size`, `updated_at`, `release_notes`. Missing values are `null`, never adapter-specific.
+- **Review** — the normalised review every Source Adapter returns: `id`, `stars`, `text`, `thumbs_up`, `app_version`, `created_at`. No reviewer name or avatar.
+- **Lookup Adapter** — the TypeScript implementation of `exists` and `get_listing` used by the Webhook Worker for `/add`. Returns the same Listing.
+- **Contract Fixtures** — saved raw responses plus the expected Listing and Review JSON in `contracts/fixtures/`. Every Source Adapter and the Lookup Adapter must pass them.
+- **Fetch** — one call to the Active Source for an App's Listing and new Reviews.
 - **Snapshot** — one stored row of an App's listing data for one day.
 - **Summary** — Claude's output for one App for one period: top 3 complaint themes and top 3 praise themes with rough shares.
 - **Card** — the 1200×630 PNG image for one App for one period.
@@ -62,11 +71,31 @@ Rejected approaches:
 | Part | Runs on | Language |
 |---|---|---|
 | Webhook Worker | Cloudflare Workers (free) | TypeScript |
+| Store Source | `contracts/` (JSON Schema), Source Adapters in `job/sources/`, Lookup Adapter in `worker/src/sources/` | Python, TypeScript |
 | Daily Job | GitHub Actions (cron) | Python 3.11+ |
 | Database | Supabase free (Postgres) | SQL |
 | Summaries | Claude Haiku 5.5, Batch API for scheduled work | — |
 | Card render | Playwright (HTML/CSS + inline SVG chart) in Daily Job | Python |
 | Dashboard | Cloudflare Pages + Cloudflare Access | Astro or HTML + Chart.js |
+
+Store Source layout:
+```
+contracts/
+  listing.schema.json      # Listing
+  review.schema.json       # Review
+  fixtures/                # raw responses + expected JSON per adapter
+job/sources/
+  base.py                  # StoreSource protocol, Listing, Review dataclasses, SourceError
+  google_play_scraper.py   # GooglePlayScraperAdapter
+  registry.py              # STORE_SOURCE / STORE_SOURCE_FALLBACK → adapter
+worker/src/sources/
+  lookup.ts                # Lookup Adapter
+```
+Rules:
+- Job code imports only `job/sources/registry.py`. Never a scraping library.
+- Every Source Adapter raises only `SourceError` with a reason: `not_found`, `rate_limited`, `blocked`, `parse_failed`, `unavailable`.
+- Every Source Adapter validates its output against the JSON Schemas before returning.
+- Database rows store the `store` value and the adapter name, so data from different adapters can be told apart.
 
 Data flow per day:
 1. Daily Job does a Fetch for every App with at least one Watcher.
@@ -80,8 +109,8 @@ Data flow per day:
 
 - `users` — `chat_id` (PK), `language_code`, `timezone`, `digest_time`, `paused`, `blocked`, `created_at`, `last_active_at`
 - `watchlist` — `chat_id`, `package`, `paused`, `added_at` (PK `chat_id`, `package`)
-- `apps` — `package` (PK), `name`, `developer`, `icon_url`, `first_seen_at`, `removed`
-- `app_snapshots` — `package`, `date`, `version`, `rating`, `review_count`, `installs_tier`, `size`, `one_star_share` (PK `package`, `date`)
+- `apps` — `store` (default `google_play`), `package` (PK), `name`, `developer`, `icon_url`, `first_seen_at`, `removed`
+- `app_snapshots` — `package`, `date`, `source_adapter`, `version`, `rating`, `review_count`, `installs_tier`, `size`, `one_star_share` (PK `package`, `date`)
 - `app_cursor` — `package` (PK), `last_review_id`, `last_review_at`
 - `summaries` — `package`, `period` (`daily` | `monthly` | `quarterly`), `period_start`, `complaints` (JSON), `praise` (JSON), `verdict`
 - `cards` — `package`, `period`, `period_start`, `telegram_file_id`
@@ -89,7 +118,7 @@ Data flow per day:
 - `spend` — `id`, `ts`, `source` (`daily` | `on_demand` | `report`), `package`, `model`, `batch`, `tokens_in`, `tokens_out`, `cost_usd`
 - `events` — `id`, `chat_id`, `event`, `props` (JSON), `ts`
 - `job_runs` — `id`, `started_at`, `finished_at`, `apps_fetched`, `apps_failed`, `reviews_processed`, `claude_calls`, `claude_tokens_in`, `claude_tokens_out`, `cards_rendered`, `sent`, `failed`, `rate_limited`
-- `errors` — `id`, `source` (`scraper` | `claude` | `render` | `telegram` | `worker`), `package`, `message`, `stack`, `ts`
+- `errors` — `id`, `source` (`store_source` | `claude` | `render` | `telegram` | `worker`), `package`, `message`, `stack`, `ts`
 
 Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_snapshots` daily for 90 days, then weekly averages. `summaries` kept.
 
@@ -143,7 +172,7 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - Dashboard shows spend per day, per source and per App, and cost per active User.
 
 **Admin**
-- Admin alerts in Telegram: Daily Job failure, scraper health-check failure, Claude spend over threshold, block-rate spike.
+- Admin alerts in Telegram: Daily Job failure, Store Source health-check failure, Fallback Source in use, Claude spend over threshold, block-rate spike.
 - `/stats` (Admin only).
 - Weekly Admin report Card every Monday.
 - Dashboard: Overview, Retention, Funnel, Apps, Jobs, Errors.
@@ -172,7 +201,7 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 15. Create the Worker project in `worker/` with Wrangler.
 16. Add `BOT_TOKEN`, `DATABASE_URL` and `ADMIN_CHAT_ID` as Worker secrets.
 17. Implement the `/start` handler. Insert the User into `users`.
-18. Implement the `/add` handler. Validate the package against the Play Store. Insert the row into `watchlist`. Insert the App into `apps`.
+18. Implement the `/add` handler. Validate the package with the Lookup Adapter. Insert the row into `watchlist`. Insert the App into `apps`.
 19. Implement the 10-App limit in the `/add` handler.
 20. Implement the `/apps` handler with inline buttons.
 21. Implement the Pause, Resume and Remove button callbacks with `editMessageText`.
@@ -184,98 +213,115 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 27. Deploy the Worker.
 28. Set the Telegram webhook to the Worker URL with `setWebhook` and a secret token.
 
-### Phase 3 — Fetch and Snapshots
-29. Create the Python package in `job/`.
-30. Implement the Fetch with `google-play-scraper` for one App.
-31. Write the Snapshot to `app_snapshots`.
-32. Update `app_cursor` with the newest review.
-33. Implement the scraper health check: Fetch `com.whatsapp` and alert the Admin when required fields are empty.
+### Phase 3 — Store Source
+29. Write `contracts/listing.schema.json` for the Listing.
+30. Write `contracts/review.schema.json` for the Review.
+31. Write `job/sources/base.py` with the `StoreSource` protocol, the `Listing` and `Review` dataclasses and `SourceError`.
+32. Write `job/sources/google_play_scraper.py` with `GooglePlayScraperAdapter`.
+33. Map every library field to the Listing and the Review in `GooglePlayScraperAdapter`. Set unknown values to `null`.
+34. Map every library exception to a `SourceError` reason.
+35. Validate the adapter output against the JSON Schemas.
+36. Write `job/sources/registry.py`. Return the Active Source from `STORE_SOURCE` and the Fallback Source from `STORE_SOURCE_FALLBACK`.
+37. Save raw responses for 3 Apps (one large, one small, one removed) to `contracts/fixtures/`.
+38. Write the contract tests. Run every Source Adapter against `contracts/fixtures/`.
+39. Write `worker/src/sources/lookup.ts` with the Lookup Adapter.
+40. Run the Lookup Adapter against `contracts/fixtures/`.
+41. Add a CI check that fails when any file outside `job/sources/` imports `google_play_scraper`.
 
-### Phase 4 — Alert Events
-34. Implement the diff between today's Snapshot and the previous Snapshot.
-35. Detect each Alert Event type.
-36. Send Alerts to every Watcher without App Pause or Global Pause.
+### Phase 4 — Fetch and Snapshots
+42. Create the Python package in `job/`.
+43. Implement the Fetch through `registry.py` for one App.
+44. Use the Fallback Source when the Active Source raises `SourceError` with `blocked`, `rate_limited` or `parse_failed`. Write an `errors` row.
+45. Write the Snapshot to `app_snapshots` with `source_adapter`.
+46. Update `app_cursor` with the newest Review.
+47. Implement the Store Source health check: Fetch `com.whatsapp` with the Active Source and validate the Listing against the JSON Schema.
+48. Send an Admin alert when the health check fails or when the Fallback Source is used.
 
-### Phase 5 — Budget Guardrails
-37. Add the table `spend` from "Data model".
-38. Check that the Anthropic Console spend limit equals the Monthly Budget.
-39. Add `MONTHLY_BUDGET_USD` and `CLAUDE_ENABLED` as repository secrets and Worker secrets.
-40. Write the module `job/budget.py` with the Haiku 5.5 standard and batch rates per million tokens.
-41. Implement the function `remaining_today()`: Daily Budget plus unused budget from earlier days this month, minus today's spend in the Spend Ledger.
-42. Implement the function `can_spend(estimated_cost)`. Return false when `CLAUDE_ENABLED` is false or when `estimated_cost` is more than `remaining_today()`.
-43. Implement the token estimate for a prompt before sending.
-44. Reject every prompt with an estimate over 100,000 tokens.
-45. Wrap every Claude call in `can_spend()`.
-46. Write one Spend Ledger row after every Claude call with the token counts from the API response.
-47. Sort Apps in Priority Order before Summaries.
-48. Switch to Degrade Mode when today's spend reaches 80% of the Daily Budget.
-49. Skip the Summary for every App with fewer than 5 new reviews.
-50. Send an Admin alert at 50%, 80% and 100% of the Monthly Budget, once per threshold per month.
-51. Write a test that runs the Summary step with a $0.01 Daily Budget and asserts Degrade Mode.
+### Phase 5 — Alert Events
+49. Implement the diff between today's Snapshot and the previous Snapshot.
+50. Detect each Alert Event type.
+51. Send Alerts to every Watcher without App Pause or Global Pause.
 
-### Phase 6 — Summaries
-52. Implement the review filter: star split, junk removal, rank by thumbs-up and recency, cap at 150 reviews per side.
-53. Write the Summary prompt. Return JSON with themes, shares, one short example each and a one-line verdict.
-54. Submit all Apps as one Batch API request.
-55. Poll the batch until it ends.
-56. Fall back to a standard API call for every App without a result at 10:45 local.
-57. Write each Summary to `summaries`.
-58. Log tokens in `job_runs`.
+### Phase 6 — Budget Guardrails
+52. Add the table `spend` from "Data model".
+53. Check that the Anthropic Console spend limit equals the Monthly Budget.
+54. Add `MONTHLY_BUDGET_USD` and `CLAUDE_ENABLED` as repository secrets and Worker secrets.
+55. Write the module `job/budget.py` with the Haiku 5.5 standard and batch rates per million tokens.
+56. Implement the function `remaining_today()`: Daily Budget plus unused budget from earlier days this month, minus today's spend in the Spend Ledger.
+57. Implement the function `can_spend(estimated_cost)`. Return false when `CLAUDE_ENABLED` is false or when `estimated_cost` is more than `remaining_today()`.
+58. Implement the token estimate for a prompt before sending.
+59. Reject every prompt with an estimate over 100,000 tokens.
+60. Wrap every Claude call in `can_spend()`.
+61. Write one Spend Ledger row after every Claude call with the token counts from the API response.
+62. Sort Apps in Priority Order before Summaries.
+63. Switch to Degrade Mode when today's spend reaches 80% of the Daily Budget.
+64. Skip the Summary for every App with fewer than 5 new reviews.
+65. Send an Admin alert at 50%, 80% and 100% of the Monthly Budget, once per threshold per month.
+66. Write a test that runs the Summary step with a $0.01 Daily Budget and asserts Degrade Mode.
 
-### Phase 7 — Cards
-59. Move the Card HTML template to `job/card/`.
-60. Render one Card per changed App with Playwright.
-61. Write the caption template. Keep it under 1,024 characters.
+### Phase 7 — Summaries
+67. Implement the review filter: star split, junk removal, rank by thumbs-up and recency, cap at 150 reviews per side.
+68. Write the Summary prompt. Return JSON with themes, shares, one short example each and a one-line verdict.
+69. Submit all Apps as one Batch API request.
+70. Poll the batch until it ends.
+71. Fall back to a standard API call for every App without a result at 10:45 local.
+72. Write each Summary to `summaries`.
+73. Log tokens in `job_runs`.
 
-### Phase 8 — Sending
-62. Implement the send queue with a pace of 25 messages per second overall and 1 per second per chat.
-63. Retry on HTTP 429 after `retry_after` seconds.
-64. Set `users.blocked = true` on HTTP 403.
-65. Send the Card to the first Watcher with `sendPhoto`. Store the returned `file_id` in `cards`.
-66. Send the stored `file_id` to every other Watcher.
-67. Set `disable_notification` on every Update after the first per User per run.
-68. Send Updates per User at their Digest Time.
+### Phase 8 — Cards
+74. Move the Card HTML template to `job/card/`.
+75. Render one Card per changed App with Playwright.
+76. Write the caption template. Keep it under 1,024 characters.
 
-### Phase 9 — On-demand Runs
-69. Add the table `on_demand` with `chat_id`, `package`, `requested_at`, `status`.
-70. In the `/add` handler, look up today's Card for the App in `cards`.
-71. Send the stored `file_id` to the User when today's Card exists.
-72. Reply with basic listing data when today's Card does not exist.
-73. Count the User's On-demand Run Apps for today in `on_demand`.
-74. Skip the On-demand Run when the count is at the New-App Quota. Reply that the first Update arrives at the next Digest Time.
-75. Count all On-demand Run Apps for today in `on_demand`.
-76. Skip the On-demand Run when the count is at the On-demand Budget. Send an Admin alert once per day.
-77. Insert a pending row into `on_demand`.
-78. Start the On-demand Run with `repository_dispatch` 60 seconds after the last pending row for that User.
-79. Write `.github/workflows/on-demand.yml` triggered by `repository_dispatch`.
-80. In the On-demand Run, Fetch every pending App, make one standard Claude call per App, render the Card, send it, and store the `file_id` in `cards`.
-81. Set the `on_demand` rows to `done` or `failed`.
-82. Count add and remove actions per User in the last hour from `events`.
-83. Reject the action and reply "Too many changes, try again in a few minutes" when the count is at the Action Limit.
-84. Write an Event `action_limited` for every rejected action.
-85. Show Users with 3 or more `action_limited` Events in one day on the Dashboard.
-86. In the Daily Job, select only Apps with at least one row in `watchlist`.
+### Phase 9 — Sending
+77. Implement the send queue with a pace of 25 messages per second overall and 1 per second per chat.
+78. Retry on HTTP 429 after `retry_after` seconds.
+79. Set `users.blocked = true` on HTTP 403.
+80. Send the Card to the first Watcher with `sendPhoto`. Store the returned `file_id` in `cards`.
+81. Send the stored `file_id` to every other Watcher.
+82. Set `disable_notification` on every Update after the first per User per run.
+83. Send Updates per User at their Digest Time.
 
-### Phase 10 — Schedule
-87. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
-88. Write the send workflow with a cron every 30 minutes for Digest Times.
-89. Write the Monthly and Quarterly Report workflows.
-90. Write a `job_runs` row at the end of every workflow.
-91. Send an Admin alert when a workflow fails.
+### Phase 10 — On-demand Runs
+84. Add the table `on_demand` with `chat_id`, `package`, `requested_at`, `status`.
+85. In the `/add` handler, look up today's Card for the App in `cards`.
+86. Send the stored `file_id` to the User when today's Card exists.
+87. Reply with basic listing data when today's Card does not exist.
+88. Count the User's On-demand Run Apps for today in `on_demand`.
+89. Skip the On-demand Run when the count is at the New-App Quota. Reply that the first Update arrives at the next Digest Time.
+90. Count all On-demand Run Apps for today in `on_demand`.
+91. Skip the On-demand Run when the count is at the On-demand Budget. Send an Admin alert once per day.
+92. Insert a pending row into `on_demand`.
+93. Start the On-demand Run with `repository_dispatch` 60 seconds after the last pending row for that User.
+94. Write `.github/workflows/on-demand.yml` triggered by `repository_dispatch`.
+95. In the On-demand Run, Fetch every pending App, make one standard Claude call per App, render the Card, send it, and store the `file_id` in `cards`.
+96. Set the `on_demand` rows to `done` or `failed`.
+97. Count add and remove actions per User in the last hour from `events`.
+98. Reject the action and reply "Too many changes, try again in a few minutes" when the count is at the Action Limit.
+99. Write an Event `action_limited` for every rejected action.
+100. Show Users with 3 or more `action_limited` Events in one day on the Dashboard.
+101. In the Daily Job, select only Apps with at least one row in `watchlist`.
 
-### Phase 11 — Admin and Dashboard
-92. Implement the `/stats` handler for the Admin only.
-93. Write the stats builder that writes `stats.json`: DAU (active and reached), new Users, D1/D7/D30 retention, funnel, block rate, top Apps, failed `/add` reasons, job runs, errors.
-94. Build the Dashboard pages in `dashboard/`.
-95. Deploy the Dashboard to Cloudflare Pages.
-96. Protect the Dashboard with Cloudflare Access for the Admin email only.
-97. Implement the weekly Admin report Card.
+### Phase 11 — Schedule
+102. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
+103. Write the send workflow with a cron every 30 minutes for Digest Times.
+104. Write the Monthly and Quarterly Report workflows.
+105. Write a `job_runs` row at the end of every workflow.
+106. Send an Admin alert when a workflow fails.
 
-### Phase 12 — Launch
-98. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
-99. Add the privacy note to the Bot description and the README.
-100. Test every command with a second Telegram account.
-101. Announce the Bot on LinkedIn and Inside Android.
+### Phase 12 — Admin and Dashboard
+107. Implement the `/stats` handler for the Admin only.
+108. Write the stats builder that writes `stats.json`: DAU (active and reached), new Users, D1/D7/D30 retention, funnel, block rate, top Apps, failed `/add` reasons, job runs, errors.
+109. Build the Dashboard pages in `dashboard/`.
+110. Deploy the Dashboard to Cloudflare Pages.
+111. Protect the Dashboard with Cloudflare Access for the Admin email only.
+112. Implement the weekly Admin report Card.
+
+### Phase 13 — Launch
+113. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
+114. Add the privacy note to the Bot description and the README.
+115. Test every command with a second Telegram account.
+116. Announce the Bot on LinkedIn and Inside Android.
 
 ## Done when
 
@@ -288,6 +334,10 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - Blocking the Bot from a test account sets `users.blocked = true` after the next send.
 - `/delete` leaves zero rows for that `chat_id` in `users`, `watchlist` and `events`.
 - Breaking the scraper (wrong field name) sends an Admin alert within one run.
+- `grep -rn "google_play_scraper" --include=*.py . | grep -v "^./job/sources/"` returns nothing.
+- Every Source Adapter and the Lookup Adapter pass the contract tests: `pytest job/tests/test_contracts.py` and `npm test` in `worker/`.
+- Changing `STORE_SOURCE` to a stub adapter makes the Daily Job run end to end with no other code change.
+- Making the Active Source raise `blocked` for one App switches that App to the Fallback Source, writes an `errors` row and sends an Admin alert.
 - `job_runs` has one row per workflow run with non-zero `apps_fetched`.
 - `select sum(cost_usd) from spend where ts::date = current_date` never exceeds that day's Daily Budget plus rollover.
 - `select sum(cost_usd) from spend where date_trunc('month', ts) = date_trunc('month', now())` never exceeds `MONTHLY_BUDGET_USD`.
