@@ -42,3 +42,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Python wheels and archives
+*.whl
+*.tar.gz
