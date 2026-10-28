@@ -1,0 +1,31 @@
+name: Bot setup
+
+# Registers the Telegram webhook, command menus (public and Admin-only) and
+# descriptions. Run once after setting secrets, and again after changing the
+# command list or the web domain.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Web project URL (no trailing path)
+        default: https://storerating-bot.vercel.app
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Configure bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          BASE_URL: ${{ inputs.base_url }}
+        run: python -m job.bot_setup "$BASE_URL"

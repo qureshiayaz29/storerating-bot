@@ -22,6 +22,7 @@ jobs:
     env:
       PGPASSWORD: postgres
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
 
@@ -37,13 +38,15 @@ jobs:
       - name: Store Source import guard
         run: python ci/check_imports.py
 
-      - name: Contract tests
+      - name: Tests (contracts, fetch, alerts, budget)
         run: python -m pytest
 
       - name: Apply migrations to a throwaway Postgres
         run: |
           # Supabase API roles, so 002_rls.sql runs as it does on Supabase.
-          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -c "create role anon nologin; create role authenticated nologin;"
+          for r in anon authenticated; do
+            psql -h localhost -U postgres -v ON_ERROR_STOP=1 -c "do \$\$ begin create role $r nologin; exception when duplicate_object then null; end \$\$"
+          done
           for f in db/*.sql; do
             echo "Applying $f"
             psql -h localhost -U postgres -v ON_ERROR_STOP=1 -q -f "$f"
