@@ -68,7 +68,9 @@ Rejected approaches:
 - **Pace Alert** — the Admin Telegram message sent when projected month-end spend is more than the Monthly Budget, even below 70%.
 - **Kill Switch** — `CLAUDE_ENABLED=false`. Stops every Claude call at once; Updates continue in Degrade Mode.
 - **Event** — one row in the `events` table describing a User action or delivery result.
-- **Dashboard** — the Admin-only web page that shows metrics.
+- **Dashboard** — the Admin-only web page that shows metrics. Static frontend on Cloudflare Pages.
+- **Stats API** — the Webhook Worker routes under `/admin/api/*` that read the database and return JSON to the Dashboard.
+- **Daily Stats** — the `daily_stats` table. One row per day of pre-computed metrics, written by the Daily Job.
 
 ## Architecture
 
@@ -81,6 +83,7 @@ Rejected approaches:
 | Summaries | Claude Haiku 5.5, Batch API for scheduled work | — |
 | Card render | Playwright (HTML/CSS + inline SVG chart) in Daily Job | Python |
 | Dashboard | Cloudflare Pages + Cloudflare Access | Astro or HTML + Chart.js |
+| Stats API | Webhook Worker, `/admin/api/*`, behind Cloudflare Access | TypeScript |
 
 Store Source layout:
 ```
@@ -109,6 +112,39 @@ Data flow per day:
 5. Daily Job sends the Card to the first Watcher, stores the returned Telegram `file_id`, and resends by `file_id` to every other Watcher.
 6. Daily Job writes a `job_runs` row and sends the Admin an alert on failure.
 
+## User flow
+
+First use and adding an App:
+
+```mermaid
+flowchart TD
+    A[Start bot<br/>User sends /start] --> B[Welcome<br/>How it works, try /add]
+    B --> C[Add an app<br/>/add or paste a link]
+    C --> D{App found?}
+    D -- No --> D1[Not found<br/>Ask to check link]
+    D -- Yes --> E{Watchlist full?<br/>Max 10 apps}
+    E -- Yes --> E1[Limit reached<br/>Remove one first]
+    E -- No --> F{Card ready today?}
+    F -- Yes --> F1[Card sent now<br/>Instant, no cost]
+    F -- No --> F2[Basic info now<br/>Card in 2–5 min]
+    F1 --> G[Daily updates<br/>11 AM, one card per app]
+    F2 --> G
+```
+
+Every day after that:
+
+```mermaid
+flowchart TD
+    A[Daily at 11 AM<br/>User's own timezone] --> C{Paused?<br/>All apps or this app}
+    B[Instant alert<br/>Release, drop, 1★ spike] --> C
+    C -- Yes --> C1[Skipped<br/>Still tracked]
+    C -- No --> D{Anything new?<br/>Since last update}
+    D -- No --> D1[Nothing sent]
+    D -- Yes --> E[Card + summary<br/>One message per app]
+```
+
+Managing Apps is available anytime from `/apps`: pause or resume one App, remove one (with confirmation), or pause all. Pausing never stops tracking.
+
 ## Data model
 
 - `users` — `chat_id` (PK), `language_code`, `timezone`, `digest_time`, `paused`, `blocked`, `created_at`, `last_active_at`
@@ -121,6 +157,7 @@ Data flow per day:
 - `on_demand` — `chat_id`, `package`, `requested_at`, `status` (`pending` | `done` | `failed`)
 - `spend` — `id`, `ts`, `source` (`daily` | `on_demand` | `report`), `package`, `model`, `batch`, `tokens_in`, `tokens_out`, `cost_usd`
 - `config` — `key` (PK), `value`, `updated_at`. Holds `monthly_budget_usd`.
+- `daily_stats` — `date` (PK), `users_total`, `users_new`, `dau_active`, `dau_reached`, `blocked_total`, `blocked_new`, `apps_watched`, `updates_sent`, `alerts_sent`, `claude_cost_usd`, `d1_retention`, `d7_retention`, `d30_retention`
 - `events` — `id`, `chat_id`, `event`, `props` (JSON), `ts`
 - `job_runs` — `id`, `started_at`, `finished_at`, `apps_fetched`, `apps_failed`, `reviews_processed`, `claude_calls`, `claude_tokens_in`, `claude_tokens_out`, `cards_rendered`, `sent`, `failed`, `rate_limited`
 - `errors` — `id`, `source` (`store_source` | `claude` | `render` | `telegram` | `worker`), `package`, `message`, `stack`, `ts`
@@ -197,7 +234,24 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - Admin alerts in Telegram: Daily Job failure, Store Source health-check failure, Fallback Source in use, Claude spend over threshold, block-rate spike.
 - `/stats` (Admin only).
 - Weekly Admin report Card every Monday.
-- Dashboard: Overview, Retention, Funnel, Apps, Jobs, Errors.
+- Dashboard: Overview, Retention, Funnel, Apps, Jobs, Errors, Budget.
+
+**Dashboard data**
+- Login: Cloudflare Access in front of both the Dashboard and the Stats API. Policy allows only the Admin email. Login by one-time code sent to that email.
+- The Stats API verifies the `Cf-Access-Jwt-Assertion` header on every request, so the API stays closed even if the Access policy is misconfigured.
+- History comes from Daily Stats. Today's numbers come from live queries on `events`, `users`, `watchlist`, `spend`, `job_runs` and `errors`.
+- No stats files in the repository. The repository is public; all numbers stay in the database.
+- The database credentials live only in the Worker and in repository secrets, never in the Dashboard frontend.
+
+| Page | Shows | Source |
+|---|---|---|
+| Overview | Total and new Users, DAU active vs reached, block rate, updates sent, Claude spend today | `daily_stats` + live `events`, `users`, `spend` |
+| Retention | D1, D7, D30 by signup week | `daily_stats`, `users.created_at`, `events` |
+| Funnel | Start → first App added → first Update → still subscribed day 7 | `events`, `users` |
+| Apps | Most watched, failed `/add` reasons, Store Source failures | `watchlist`, `events`, `errors` |
+| Jobs | Duration, Apps fetched, sends, 429s per run | `job_runs` |
+| Errors | Latest errors by source with stack | `errors` |
+| Budget | Month-to-date spend, projection, spend per App and per source, flagged Users | `spend`, `config`, `events` |
 
 ## Steps
 
@@ -353,17 +407,19 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 
 ### Phase 12 — Admin and Dashboard
 120. Implement the `/stats` handler for the Admin only.
-121. Write the stats builder that writes `stats.json`: DAU (active and reached), new Users, D1/D7/D30 retention, funnel, block rate, top Apps, failed `/add` reasons, job runs, errors.
-122. Build the Dashboard pages in `dashboard/`.
-123. Deploy the Dashboard to Cloudflare Pages.
-124. Protect the Dashboard with Cloudflare Access for the Admin email only.
-125. Implement the weekly Admin report Card.
+121. Write the stats builder in the Daily Job. Write one `daily_stats` row for yesterday.
+122. Add the Stats API routes `/admin/api/overview`, `/retention`, `/funnel`, `/apps`, `/jobs`, `/errors`, `/budget` to the Webhook Worker.
+123. Verify the `Cf-Access-Jwt-Assertion` header in every Stats API route. Return HTTP 403 when it is missing or invalid.
+124. Build the Dashboard pages in `dashboard/`.
+125. Deploy the Dashboard to Cloudflare Pages.
+126. Protect the Dashboard and `/admin/api/*` with one Cloudflare Access application. Allow only the Admin email. Use one-time code login.
+127. Implement the weekly Admin report Card.
 
 ### Phase 13 — Launch
-126. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
-127. Add the privacy note to the Bot description and the README.
-128. Test every command with a second Telegram account.
-129. Announce the Bot on LinkedIn and Inside Android.
+128. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
+129. Add the privacy note to the Bot description and the README.
+130. Test every command with a second Telegram account.
+131. Announce the Bot on LinkedIn and Inside Android.
 
 ## Done when
 
@@ -399,6 +455,9 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - Every budget alert ends with the top-up, Console limit and `/setbudget` reminder.
 - With money left for only half the Apps, the Apps with the most Watchers get Summaries first.
 - The Dashboard loads for the Admin email and returns an Access login page for any other email.
+- `curl <worker-url>/admin/api/overview` without an Access token returns HTTP 403.
+- `daily_stats` has one row per day after the Daily Job.
+- `git grep -i "DATABASE_URL\|stats.json" dashboard/` returns nothing.
 - Adding an App that already has today's Card returns that Card within 2 seconds, and no `on_demand` row is created.
 - Adding an App with no Card today returns basic listing data within 2 seconds and the Card within 5 minutes.
 - Adding 5 new Apps within 60 seconds starts exactly one On-demand Run.
