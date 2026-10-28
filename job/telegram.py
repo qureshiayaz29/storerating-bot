@@ -10,6 +10,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 
 
@@ -45,6 +46,45 @@ class Telegram:
             body = json.loads(e.read() or b"{}")
             retry = (body.get("parameters") or {}).get("retry_after")
             raise TelegramSendError(method, e.code, body.get("description", "unknown"), retry) from None
+
+    def _multipart(self, method: str, fields: dict, file_field: str, filename: str, data: bytes) -> dict:
+        if not self.token:
+            self.sent.append({"method": method, **fields, file_field: f"<{len(data)} bytes>"})
+            print(f"[dry-run] {method} upload {len(data)} bytes")
+            return {"ok": True, "result": {"message_id": len(self.sent), "photo": [{"file_id": f"dry-{len(self.sent)}"}]}}
+        boundary = uuid.uuid4().hex
+        parts = []
+        for k, v in fields.items():
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'
+                     f"Content-Type: image/png\r\n\r\n".encode() + data + b"\r\n")
+        parts.append(f"--{boundary}--\r\n".encode())
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{self.token}/{method}", data=b"".join(parts),
+            headers={"content-type": f"multipart/form-data; boundary={boundary}"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as res:
+                return json.load(res)
+        except urllib.error.HTTPError as e:
+            body = json.loads(e.read() or b"{}")
+            retry = (body.get("parameters") or {}).get("retry_after")
+            raise TelegramSendError(method, e.code, body.get("description", "unknown"), retry) from None
+
+    def upload_photo(self, chat_id: int, png: bytes, caption: str = "") -> tuple[str, int]:
+        """Upload a PNG silently; return (largest file_id, message_id)."""
+        res = self._multipart("sendPhoto", {"chat_id": chat_id, "caption": caption, "disable_notification": "true"},
+                              "photo", "card.png", png)["result"]
+        return res["photo"][-1]["file_id"], res["message_id"]
+
+    def send_photo(self, chat_id: int, file_id: str, caption: str, *, silent: bool = False) -> dict:
+        return self.call("sendPhoto", {"chat_id": chat_id, "photo": file_id, "caption": caption,
+                                       "parse_mode": "HTML", "disable_notification": silent})
+
+    def delete_message(self, chat_id: int, message_id: int) -> None:
+        try:
+            self.call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+        except TelegramSendError:
+            pass  # cleanup only
 
     def send_message(self, chat_id: int, text: str, *, silent: bool = False) -> dict:
         return self.call("sendMessage", {

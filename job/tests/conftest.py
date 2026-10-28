@@ -14,7 +14,7 @@ import psycopg
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-TABLES = ("alerts", "errors", "job_runs", "events", "fn_metrics", "platform_usage", "daily_stats", "spend",
+TABLES = ("deliveries", "alerts", "errors", "job_runs", "events", "fn_metrics", "platform_usage", "daily_stats", "spend",
           "on_demand", "cards", "summaries", "app_cursor", "app_snapshots", "watchlist", "apps", "users", "config")
 
 
