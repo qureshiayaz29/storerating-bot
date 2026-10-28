@@ -297,92 +297,89 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 ## Steps
 
 ### Phase 0 — Setup
-1. Set the Bot description with `/setdescription` in @BotFather.
-2. Set the Bot about text with `/setabouttext` in @BotFather.
-3. Set the Bot profile picture with `/setuserpic` in @BotFather.
-4. Set the Bot command list with `/setcommands` in @BotFather: `add`, `apps`, `pause`, `resume`, `settings`, `delete`. Keep the Admin commands `/stats`, `/budget` and `/setbudget` out of the list.
-5. Send one message to the Bot from your Telegram account.
-6. Read your `chat.id` from `https://api.telegram.org/bot<TOKEN>/getUpdates`.
-7. Create an API key in the Anthropic Console.
-8. Set the Monthly Budget ($30) as the spend limit in the Anthropic Console.
-9. Create a free Supabase project.
-10. Copy the Supabase connection string.
-11. Add the secrets `BOT_TOKEN`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `ADMIN_CHAT_ID` to this repository.
-12. Add the same values as environment variables in the Vercel project `storerating` once it exists (Phase 3): `BOT_TOKEN`, `DATABASE_URL` (Supabase transaction pooler), `ADMIN_CHAT_ID`, `WEBHOOK_SECRET`, `SESSION_SECRET`, `GITHUB_DISPATCH_TOKEN` (fine-grained, this repository only, Actions read and write), `CRON_SECRET`.
-13. Set the Bot domain with `/setdomain` in @BotFather to the Dashboard domain, for Telegram Login.
+1. Set the Bot profile picture with `/setuserpic` in @BotFather. Name, description and command menus are set by the Bot Setup Workflow (Phase 3).
+2. Send one message to the Bot from your Telegram account.
+3. Read your `chat.id` from `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+4. Create an API key in the Anthropic Console.
+5. Set the Monthly Budget ($30) as the spend limit in the Anthropic Console.
+6. Create a free Supabase project.
+7. Copy the Supabase connection string.
+8. Add the secrets `BOT_TOKEN`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `ADMIN_CHAT_ID` to this repository.
+9. Add the same values as environment variables in the Vercel project `storerating` once it exists (Phase 3): `BOT_TOKEN`, `DATABASE_URL` (Supabase transaction pooler), `ADMIN_CHAT_ID`, `WEBHOOK_SECRET`, `SESSION_SECRET`, `GITHUB_DISPATCH_TOKEN` (fine-grained, this repository only, Actions read and write), `CRON_SECRET`.
+10. Set the Bot domain with `/setdomain` in @BotFather to the Dashboard domain, for Telegram Login.
 
 ### Phase 1 — Database
-14. Write the migration file `db/001_init.sql` with every table in "Data model".
-15. Apply `db/001_init.sql` to the Supabase project.
+11. Write the migration file `db/001_init.sql` with every table in "Data model".
+12. Apply `db/001_init.sql` to the Supabase project.
 
 ### Phase 2 — Store Source
-16. Write `contracts/listing.schema.json` for the Listing.
-17. Write `contracts/review.schema.json` for the Review.
-18. Write `job/sources/base.py` with the `StoreSource` protocol, the `Listing` and `Review` dataclasses and `SourceError`.
-19. Write `job/sources/google_play_scraper.py` with `GooglePlayScraperAdapter`.
-20. Map every library field to the Listing and the Review in `GooglePlayScraperAdapter`. Set unknown values to `null`.
-21. Map every library exception to a `SourceError` reason.
-22. Validate the adapter output against the JSON Schemas.
-23. Write `job/sources/registry.py`. Return the Active Source from `STORE_SOURCE` and the Fallback Source from `STORE_SOURCE_FALLBACK`.
-24. Save raw responses for 3 Apps (one large, one small, one removed) to `contracts/fixtures/`.
-25. Write the contract tests. Run every Source Adapter against `contracts/fixtures/`.
-26. Write `web/src/sources/lookup.ts` with the Lookup Adapter.
-27. Run the Lookup Adapter against `contracts/fixtures/`.
-28. Add a CI check that fails when any file outside `job/sources/` imports `google_play_scraper`.
+13. Write `contracts/listing.schema.json` for the Listing.
+14. Write `contracts/review.schema.json` for the Review.
+15. Write `job/sources/base.py` with the `StoreSource` protocol, the `Listing` and `Review` dataclasses and `SourceError`.
+16. Write `job/sources/google_play_scraper.py` with `GooglePlayScraperAdapter`.
+17. Map every library field to the Listing and the Review in `GooglePlayScraperAdapter`. Set unknown values to `null`.
+18. Map every library exception to a `SourceError` reason.
+19. Validate the adapter output against the JSON Schemas.
+20. Write `job/sources/registry.py`. Return the Active Source from `STORE_SOURCE` and the Fallback Source from `STORE_SOURCE_FALLBACK`.
+21. Save raw responses for 3 Apps (one large, one small, one removed) to `contracts/fixtures/`.
+22. Write the contract tests. Run every Source Adapter against `contracts/fixtures/`.
+23. Write `web/src/sources/lookup.ts` with the Lookup Adapter.
+24. Run the Lookup Adapter against `contracts/fixtures/`.
+25. Add a CI check that fails when any file outside `job/sources/` imports `google_play_scraper`.
 
 ### Phase 3 — Webhook Function
-29. Create the Astro project in `web/` with the Vercel adapter.
-30. Create the Vercel project `storerating` linked to this repository with root directory `web/`.
-31. Set the Vercel function region to the region closest to the Supabase project.
-32. Reject every webhook request without the correct `X-Telegram-Bot-Api-Secret-Token` header with HTTP 401.
-33. Implement the Admin Check `isAdmin(update)`.
-34. Route every Admin Command through the Admin Check.
-35. Reply to a rejected Admin Command with the unknown-command reply. Write an Event `admin_denied`.
-36. Set the Admin command menu with `setMyCommands` and `BotCommandScopeChat` for `ADMIN_CHAT_ID`: `stats`, `budget`, `setbudget`.
-37. Implement the `/start` handler. Insert the User into `users`.
-38. Implement the `/add` handler. Validate the package with the Lookup Adapter. Insert the row into `watchlist`. Insert the App into `apps`.
-39. Implement the 10-App limit in the `/add` handler.
-40. Implement the `/apps` handler with inline buttons.
-41. Implement the Pause, Resume and Remove button callbacks with `editMessageText`.
-42. Implement the `/pause` and `/resume` handlers.
-43. Implement the `/settings` handler.
-44. Implement the `/delete` handler.
-45. Write an Event for every handler.
-46. Write an `errors` row for every caught exception.
-47. Push to `main`. Vercel deploys the Web Project.
-48. Write the Bot Setup Workflow.
-49. Run the Bot Setup Workflow. Point the webhook to `https://<domain>/api/telegram` with `WEBHOOK_SECRET`.
+26. Create the Astro project in `web/` with the Vercel adapter.
+27. Create the Vercel project `storerating` linked to this repository with root directory `web/`.
+28. Set the Vercel function region to the region closest to the Supabase project.
+29. Reject every webhook request without the correct `X-Telegram-Bot-Api-Secret-Token` header with HTTP 401.
+30. Implement the Admin Check `isAdmin(update)`.
+31. Route every Admin Command through the Admin Check.
+32. Reply to a rejected Admin Command with the unknown-command reply. Write an Event `admin_denied`.
+33. Set the Admin command menu with `setMyCommands` and `BotCommandScopeChat` for `ADMIN_CHAT_ID`: `stats`, `budget`, `setbudget`.
+34. Implement the `/start` handler. Insert the User into `users`.
+35. Implement the `/add` handler. Validate the package with the Lookup Adapter. Insert the row into `watchlist`. Insert the App into `apps`.
+36. Implement the 10-App limit in the `/add` handler.
+37. Implement the `/apps` handler with inline buttons.
+38. Implement the Pause, Resume and Remove button callbacks with `editMessageText`.
+39. Implement the `/pause` and `/resume` handlers.
+40. Implement the `/settings` handler.
+41. Implement the `/delete` handler.
+42. Write an Event for every handler.
+43. Write an `errors` row for every caught exception.
+44. Push to `main`. Vercel deploys the Web Project.
+45. Write the Bot Setup Workflow.
+46. Run the Bot Setup Workflow. Point the webhook to `https://<domain>/api/telegram` with `WEBHOOK_SECRET`.
 
 ### Phase 4 — Fetch and Snapshots
-50. Create the Python package in `job/`.
-51. Implement the Fetch through `registry.py` for one App.
-52. Use the Fallback Source when the Active Source raises `SourceError` with `blocked`, `rate_limited` or `parse_failed`. Write an `errors` row.
-53. Write the Snapshot to `app_snapshots` with `source_adapter`.
-54. Update `app_cursor` with the newest Review.
-55. Implement the Store Source health check: Fetch `com.whatsapp` with the Active Source and validate the Listing against the JSON Schema.
-56. Send an Admin alert when the health check fails or when the Fallback Source is used.
+47. Create the Python package in `job/`.
+48. Implement the Fetch through `registry.py` for one App.
+49. Use the Fallback Source when the Active Source raises `SourceError` with `blocked`, `rate_limited` or `parse_failed`. Write an `errors` row.
+50. Write the Snapshot to `app_snapshots` with `source_adapter`.
+51. Update `app_cursor` with the newest Review.
+52. Implement the Store Source health check: Fetch `com.whatsapp` with the Active Source and validate the Listing against the JSON Schema.
+53. Send an Admin alert when the health check fails or when the Fallback Source is used.
 
 ### Phase 5 — Alert Events
-57. Implement the diff between today's Snapshot and the previous Snapshot.
-58. Detect each Alert Event type.
-59. Send Alerts to every Watcher without App Pause or Global Pause.
+54. Implement the diff between today's Snapshot and the previous Snapshot.
+55. Detect each Alert Event type.
+56. Send Alerts to every Watcher without App Pause or Global Pause.
 
 ### Phase 6 — Budget Guardrails
-60. Add the table `spend` from "Data model".
-61. Check that the Anthropic Console spend limit equals the Monthly Budget.
-62. Add `MONTHLY_BUDGET_USD` and `CLAUDE_ENABLED` as repository secrets and Vercel environment variables.
-63. Write the module `job/budget.py` with the Haiku 5.5 standard and batch rates per million tokens.
-64. Implement the function `remaining_today()`: Daily Budget plus unused budget from earlier days this month, minus today's spend in the Spend Ledger.
-65. Implement the function `can_spend(estimated_cost)`. Return false when `CLAUDE_ENABLED` is false or when `estimated_cost` is more than `remaining_today()`.
-66. Implement the token estimate for a prompt before sending.
-67. Reject every prompt with an estimate over 100,000 tokens.
-68. Wrap every Claude call in `can_spend()`.
-69. Write one Spend Ledger row after every Claude call with the token counts from the API response.
-70. Sort Apps in Priority Order before Summaries.
-71. Switch to Degrade Mode when today's spend reaches 80% of the Daily Budget.
-72. Skip the Summary for every App with fewer than 5 new reviews.
-73. Send an Admin alert at 50%, 80% and 100% of the Monthly Budget, once per threshold per month.
-74. Send the Top-up Alert at 70% of the Monthly Budget, once per month. Format:
+57. Add the table `spend` from "Data model".
+58. Check that the Anthropic Console spend limit equals the Monthly Budget.
+59. Add `MONTHLY_BUDGET_USD` and `CLAUDE_ENABLED` as repository secrets and Vercel environment variables.
+60. Write the module `job/budget.py` with the Haiku 5.5 standard and batch rates per million tokens.
+61. Implement the function `remaining_today()`: Daily Budget plus unused budget from earlier days this month, minus today's spend in the Spend Ledger.
+62. Implement the function `can_spend(estimated_cost)`. Return false when `CLAUDE_ENABLED` is false or when `estimated_cost` is more than `remaining_today()`.
+63. Implement the token estimate for a prompt before sending.
+64. Reject every prompt with an estimate over 100,000 tokens.
+65. Wrap every Claude call in `can_spend()`.
+66. Write one Spend Ledger row after every Claude call with the token counts from the API response.
+67. Sort Apps in Priority Order before Summaries.
+68. Switch to Degrade Mode when today's spend reaches 80% of the Daily Budget.
+69. Skip the Summary for every App with fewer than 5 new reviews.
+70. Send an Admin alert at 50%, 80% and 100% of the Monthly Budget, once per threshold per month.
+71. Send the Top-up Alert at 70% of the Monthly Budget, once per month. Format:
     ```
     💰 StoreRating budget at 70%
     Spent $21.00 of $30.00 · $9.00 left
@@ -390,97 +387,97 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
     Top up: https://console.anthropic.com/settings/billing
     To spend more: top up, raise the Console limit, then /setbudget <amount>
     ```
-75. Compute the projected month-end spend as month-to-date spend ÷ days elapsed × days in month.
-76. Send the Pace Alert when the projected month-end spend is more than the Monthly Budget, at most once per 3 days.
-77. Add a `/budget` handler for the Admin only. Reply with the Top-up Alert text for the current state.
-78. Read the Monthly Budget from the `config` table in `job/budget.py` and in the Webhook Function. Use `MONTHLY_BUDGET_USD` only to seed the row.
-79. Add a `/setbudget <amount>` handler for the Admin only. Update `monthly_budget_usd` in `config`.
-80. Reply to `/setbudget` with the new budget, the new Daily Budget and the reminder: "Check that the Anthropic Console spend limit is at least $<amount>."
-81. Reset the 50%, 70%, 80% and 100% alert flags for the month when the Monthly Budget changes.
-82. Write a test that runs the Summary step with a $0.01 Daily Budget and asserts Degrade Mode.
+72. Compute the projected month-end spend as month-to-date spend ÷ days elapsed × days in month.
+73. Send the Pace Alert when the projected month-end spend is more than the Monthly Budget, at most once per 3 days.
+74. Add a `/budget` handler for the Admin only. Reply with the Top-up Alert text for the current state.
+75. Read the Monthly Budget from the `config` table in `job/budget.py` and in the Webhook Function. Use `MONTHLY_BUDGET_USD` only to seed the row.
+76. Add a `/setbudget <amount>` handler for the Admin only. Update `monthly_budget_usd` in `config`.
+77. Reply to `/setbudget` with the new budget, the new Daily Budget and the reminder: "Check that the Anthropic Console spend limit is at least $<amount>."
+78. Reset the 50%, 70%, 80% and 100% alert flags for the month when the Monthly Budget changes.
+79. Write a test that runs the Summary step with a $0.01 Daily Budget and asserts Degrade Mode.
 
 ### Phase 7 — Summaries
-83. Implement the review filter: star split, junk removal, rank by thumbs-up and recency, cap at 150 reviews per side.
-84. Write the Summary prompt. Return JSON with themes, shares, one short example each and a one-line verdict.
-85. Submit all Apps as one Batch API request.
-86. Poll the batch until it ends.
-87. Fall back to a standard API call for every App without a result at 10:45 local.
-88. Write each Summary to `summaries`.
-89. Log tokens in `job_runs`.
+80. Implement the review filter: star split, junk removal, rank by thumbs-up and recency, cap at 150 reviews per side.
+81. Write the Summary prompt. Return JSON with themes, shares, one short example each and a one-line verdict.
+82. Submit all Apps as one Batch API request.
+83. Poll the batch until it ends.
+84. Fall back to a standard API call for every App without a result at 10:45 local.
+85. Write each Summary to `summaries`.
+86. Log tokens in `job_runs`.
 
 ### Phase 8 — Cards
-90. Move the Card HTML template to `job/card/`.
-91. Render one Card per changed App with Playwright.
-92. Write the caption template. Keep it under 1,024 characters.
+87. Move the Card HTML template to `job/card/`.
+88. Render one Card per changed App with Playwright.
+89. Write the caption template. Keep it under 1,024 characters.
 
 ### Phase 9 — Sending
-93. Implement the send queue with a pace of 25 messages per second overall and 1 per second per chat.
-94. Retry on HTTP 429 after `retry_after` seconds.
-95. Set `users.blocked = true` on HTTP 403.
-96. Send the Card to the first Watcher with `sendPhoto`. Store the returned `file_id` in `cards`.
-97. Send the stored `file_id` to every other Watcher.
-98. Set `disable_notification` on every Update after the first per User per run.
-99. Send Updates per User at their Digest Time.
+90. Implement the send queue with a pace of 25 messages per second overall and 1 per second per chat.
+91. Retry on HTTP 429 after `retry_after` seconds.
+92. Set `users.blocked = true` on HTTP 403.
+93. Send the Card to the first Watcher with `sendPhoto`. Store the returned `file_id` in `cards`.
+94. Send the stored `file_id` to every other Watcher.
+95. Set `disable_notification` on every Update after the first per User per run.
+96. Send Updates per User at their Digest Time.
 
 ### Phase 10 — On-demand Runs
-100. Add the table `on_demand` with `chat_id`, `package`, `requested_at`, `status`.
-101. In the `/add` handler, look up today's Card for the App in `cards`.
-102. Send the stored `file_id` to the User when today's Card exists.
-103. Reply with basic listing data when today's Card does not exist.
-104. Count the User's On-demand Run Apps for today in `on_demand`.
-105. Skip the On-demand Run when the count is at the New-App Quota. Reply that the first Update arrives at the next Digest Time.
-106. Count all On-demand Run Apps for today in `on_demand`.
-107. Skip the On-demand Run when the count is at the On-demand Budget. Send an Admin alert once per day.
-108. Insert a pending row into `on_demand`.
-109. Start the On-demand Run with `repository_dispatch` 60 seconds after the last pending row for that User.
-110. Write `.github/workflows/on-demand.yml` triggered by `repository_dispatch`.
-111. In the On-demand Run, Fetch every pending App, make one standard Claude call per App, render the Card, send it, and store the `file_id` in `cards`.
-112. Set the `on_demand` rows to `done` or `failed`.
-113. Count add and remove actions per User in the last hour from `events`.
-114. Reject the action and reply "Too many changes, try again in a few minutes" when the count is at the Action Limit.
-115. Write an Event `action_limited` for every rejected action.
-116. Show Users with 3 or more `action_limited` Events in one day on the Dashboard.
-117. In the Daily Job, select only Apps with at least one row in `watchlist`.
+97. Add the table `on_demand` with `chat_id`, `package`, `requested_at`, `status`.
+98. In the `/add` handler, look up today's Card for the App in `cards`.
+99. Send the stored `file_id` to the User when today's Card exists.
+100. Reply with basic listing data when today's Card does not exist.
+101. Count the User's On-demand Run Apps for today in `on_demand`.
+102. Skip the On-demand Run when the count is at the New-App Quota. Reply that the first Update arrives at the next Digest Time.
+103. Count all On-demand Run Apps for today in `on_demand`.
+104. Skip the On-demand Run when the count is at the On-demand Budget. Send an Admin alert once per day.
+105. Insert a pending row into `on_demand`.
+106. Start the On-demand Run with `repository_dispatch` 60 seconds after the last pending row for that User.
+107. Write `.github/workflows/on-demand.yml` triggered by `repository_dispatch`.
+108. In the On-demand Run, Fetch every pending App, make one standard Claude call per App, render the Card, send it, and store the `file_id` in `cards`.
+109. Set the `on_demand` rows to `done` or `failed`.
+110. Count add and remove actions per User in the last hour from `events`.
+111. Reject the action and reply "Too many changes, try again in a few minutes" when the count is at the Action Limit.
+112. Write an Event `action_limited` for every rejected action.
+113. Show Users with 3 or more `action_limited` Events in one day on the Dashboard.
+114. In the Daily Job, select only Apps with at least one row in `watchlist`.
 
 ### Phase 11 — Schedule
-118. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
-119. Write the send workflow with a cron every 30 minutes for Digest Times.
-120. Write the Monthly and Quarterly Report workflows.
-121. Write a `job_runs` row at the end of every workflow.
-122. Send an Admin alert when a workflow fails.
+115. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
+116. Write the send workflow with a cron every 30 minutes for Digest Times.
+117. Write the Monthly and Quarterly Report workflows.
+118. Write a `job_runs` row at the end of every workflow.
+119. Send an Admin alert when a workflow fails.
 
 ### Phase 12 — Platform Limits
-123. Add the tables `platform_usage` and `fn_metrics` from "Data model".
-124. Insert the Platform Limits into `config`.
-125. Wrap every Web Project route in a metering middleware. Add 1 invocation, the request duration and the response size to `fn_metrics`.
-126. Write `job/platform_usage.py`. Sum `fn_metrics` for the current period and write one `platform_usage` row per Vercel resource with `source = self_metered`.
-127. Send the Vercel Usage Alert at 70% and at 90% of any resource, once per threshold per period.
-128. Add the Vercel resources to the `/budget` reply.
-129. Write `.github/workflows/keepalive.yml`. Push an empty commit on the 1st of every month with the `GITHUB_TOKEN` and `contents: write` permission.
-130. Write the Watchdog route `/api/cron/watchdog` in the Web Project. Protect it with `CRON_SECRET`.
-131. Add the Watchdog to the `crons` list in `web/vercel.json`, daily at 07:00 IST.
-132. In the Watchdog, read the latest successful `job_runs` row. Send an Admin alert when it is older than 26 hours.
-133. In the Watchdog, read every workflow state from the GitHub API. Re-enable each workflow with state `disabled_inactivity`. Send an Admin alert.
-134. Write the Supabase database size to `platform_usage` in the Daily Job.
+120. Add the tables `platform_usage` and `fn_metrics` from "Data model".
+121. Insert the Platform Limits into `config`.
+122. Wrap every Web Project route in a metering middleware. Add 1 invocation, the request duration and the response size to `fn_metrics`.
+123. Write `job/platform_usage.py`. Sum `fn_metrics` for the current period and write one `platform_usage` row per Vercel resource with `source = self_metered`.
+124. Send the Vercel Usage Alert at 70% and at 90% of any resource, once per threshold per period.
+125. Add the Vercel resources to the `/budget` reply.
+126. Write `.github/workflows/keepalive.yml`. Push an empty commit on the 1st of every month with the `GITHUB_TOKEN` and `contents: write` permission.
+127. Write the Watchdog route `/api/cron/watchdog` in the Web Project. Protect it with `CRON_SECRET`.
+128. Add the Watchdog to the `crons` list in `web/vercel.json`, daily at 07:00 IST.
+129. In the Watchdog, read the latest successful `job_runs` row. Send an Admin alert when it is older than 26 hours.
+130. In the Watchdog, read every workflow state from the GitHub API. Re-enable each workflow with state `disabled_inactivity`. Send an Admin alert.
+131. Write the Supabase database size to `platform_usage` in the Daily Job.
 
 ### Phase 13 — Admin and Dashboard
-135. Implement the `/stats` handler for the Admin only.
-136. Write the stats builder in the Daily Job. Write one `daily_stats` row for yesterday.
-137. Add the Stats API routes `/admin/api/overview`, `/retention`, `/funnel`, `/apps`, `/jobs`, `/errors`, `/budget` to the Webhook Function.
-138. Build `/admin/login` with the Telegram Login Widget.
-139. Verify the Telegram Login hash on the server. Reject logins older than 1 day.
-140. Issue the Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`.
-141. Check the Admin Session in every `/admin` page and every Stats API route. Redirect pages to `/admin/login`. Return HTTP 401 from the API.
-142. Build the Dashboard pages in `web/src/pages/admin/`.
-143. Build the Limits Page with % bars for Claude, Vercel, GitHub Actions and the database.
-144. Add the domain `storerating.ayazqureshi.com` to the Vercel project.
-145. Implement the weekly Admin report Card.
+132. Implement the `/stats` handler for the Admin only.
+133. Write the stats builder in the Daily Job. Write one `daily_stats` row for yesterday.
+134. Add the Stats API routes `/admin/api/overview`, `/retention`, `/funnel`, `/apps`, `/jobs`, `/errors`, `/budget` to the Webhook Function.
+135. Build `/admin/login` with the Telegram Login Widget.
+136. Verify the Telegram Login hash on the server. Reject logins older than 1 day.
+137. Issue the Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`.
+138. Check the Admin Session in every `/admin` page and every Stats API route. Redirect pages to `/admin/login`. Return HTTP 401 from the API.
+139. Build the Dashboard pages in `web/src/pages/admin/`.
+140. Build the Limits Page with % bars for Claude, Vercel, GitHub Actions and the database.
+141. Add the domain `storerating.ayazqureshi.com` to the Vercel project.
+142. Implement the weekly Admin report Card.
 
 ### Phase 14 — Launch
-146. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
-147. Add the privacy note to the Bot description and the README.
-148. Test every command with a second Telegram account.
-149. Announce the Bot on LinkedIn and Inside Android.
+143. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
+144. Add the privacy note to the Bot description and the README.
+145. Test every command with a second Telegram account.
+146. Announce the Bot on LinkedIn and Inside Android.
 
 ## Done when
 
