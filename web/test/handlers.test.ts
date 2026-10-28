@@ -351,3 +351,18 @@ describe('On-demand Runs after /add', () => {
     expect(tg.last().text).toContain('First update at');
   });
 });
+
+describe('/budget platform limits', () => {
+  it('lists Vercel and database usage with colour by threshold', async () => {
+    repo.usage = [
+      { provider: 'vercel', resource: 'invocations', used: 720000, limit: 1000000, unit: 'invocations' },
+      { provider: 'vercel', resource: 'active_cpu', used: 3.7, limit: 4, unit: 'CPU-hours' },
+      { provider: 'supabase', resource: 'db_size', used: 12.4, limit: 500, unit: 'MB' },
+    ];
+    await send(msg('/budget', ADMIN));
+    const text = tg.last().text!;
+    expect(text).toContain('🟠 vercel invocations: 720,000 of 1,000,000 invocations (72%)');
+    expect(text).toContain('🔴 vercel active cpu: 3.70 of 4.00 CPU-hours (93%)');
+    expect(text).toContain('🟢 supabase db size: 12.40 of 500 MB (2%)');
+  });
+});

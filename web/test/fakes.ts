@@ -102,6 +102,10 @@ export class FakeRepo implements Repo {
   async recordDelivery(chatId: number, pkg: string, kind: string, ref: string, status: string) {
     this.deliveries.push({ chat_id: chatId, package: pkg, kind, ref, status });
   }
+  usage: { provider: string; resource: string; used: number; limit: number; unit: string }[] = [];
+  async platformUsage() {
+    return this.usage;
+  }
   async budget(): Promise<BudgetState> {
     return { monthlyBudgetUsd: Number(this.config.get('monthly_budget_usd')), spentUsd: this.spent };
   }

@@ -413,12 +413,23 @@ async function handleAdmin(cmd: string, arg: string, chatId: number, deps: Deps)
     const elapsed = now.getUTCDate();
     const projected = elapsed ? (b.spentUsd / elapsed) * days : 0;
     const pct = b.monthlyBudgetUsd ? Math.round((b.spentUsd / b.monthlyBudgetUsd) * 100) : 0;
+    const usage = await repo.platformUsage();
+    const platform = usage.length
+      ? '\n\n<b>Platform limits</b>\n' +
+        usage
+          .map((u) => {
+            const p = u.limit ? Math.round((u.used / u.limit) * 100) : 0;
+            const icon = p >= 90 ? '🔴' : p >= 70 ? '🟠' : '🟢';
+            return `${icon} ${u.provider} ${u.resource.replace('_', ' ')}: ${fmt(u.used)} of ${fmt(u.limit)} ${u.unit} (${p}%)`;
+          })
+          .join('\n')
+      : '';
     return tg.sendMessage(
       chatId,
       `💰 <b>Claude budget at ${pct}%</b>\n` +
         `Spent $${b.spentUsd.toFixed(2)} of $${b.monthlyBudgetUsd.toFixed(2)} · $${Math.max(0, b.monthlyBudgetUsd - b.spentUsd).toFixed(2)} left\n` +
         `${days - elapsed} days left · projected $${projected.toFixed(2)} by month end\n` +
-        `Top up: https://console.anthropic.com/settings/billing\n${reminder}`,
+        `Top up: https://console.anthropic.com/settings/billing\n${reminder}${platform}`,
     );
   }
   if (cmd === '/setbudget') {
@@ -434,6 +445,10 @@ async function handleAdmin(cmd: string, arg: string, chatId: number, deps: Deps)
         `Check that the Anthropic Console spend limit is at least $${amount.toFixed(2)}.`,
     );
   }
+}
+
+function fmt(v: number): string {
+  return v >= 100 ? Math.round(v).toLocaleString('en-US') : v.toFixed(2);
 }
 
 function daysInMonth(d: Date): number {

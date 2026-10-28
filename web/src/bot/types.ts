@@ -90,5 +90,7 @@ export interface Repo {
   recordDelivery(chatId: number, pkg: string, kind: 'daily' | 'alert', ref: string, status: 'sent' | 'failed'): Promise<void>;
 
   budget(now: Date): Promise<BudgetState>;
+  /** Latest Platform Limits rows (Vercel self-metered usage, database size). */
+  platformUsage(): Promise<{ provider: string; resource: string; used: number; limit: number; unit: string }[]>;
   stats(now: Date): Promise<Stats>;
 }

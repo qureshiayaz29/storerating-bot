@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from . import alerts, budget, fetch, health, summaries
+from . import alerts, budget, cleanup, fetch, health, platform_usage, stats, summaries
 from .card.render import Renderer, caption, card_html, daily_card
 from .db import JobRun, connect, job_run, log_exception
 from .send import Pacer, mark_alerts_sent, pending_alerts, upload_card
@@ -96,10 +96,14 @@ def main() -> None:
             print("Summaries skipped: ANTHROPIC_API_KEY not set")
 
         cards = make_cards(conn, tg, run, outcomes, today, {a.package for a in new_alerts}, done)
-        stats = Pacer(conn, tg, run).send_all(pending_alerts(conn))
+        alert_stats = Pacer(conn, tg, run).send_all(pending_alerts(conn))
         mark_alerts_sent(conn)
         budget.check_alerts(conn, tg=tg)
-        print(f"{today}: {len(outcomes)} apps, {len(new_alerts)} alerts, {cards} cards, alert messages {stats}")
+        stats.build(conn, today - timedelta(days=1))  # yesterday is complete
+        stats.build(conn, today)
+        platform_usage.run(conn, today, tg)
+        print(f"Cleanup: {cleanup.run(conn, today)}")
+        print(f"{today}: {len(outcomes)} apps, {len(new_alerts)} alerts, {cards} cards, alert messages {alert_stats}")
 
 
 if __name__ == "__main__":

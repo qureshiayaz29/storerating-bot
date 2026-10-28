@@ -160,6 +160,13 @@ export class PgRepo implements Repo {
     return { monthlyBudgetUsd: Number(b?.budget ?? 30), spentUsd: Number(b?.spent ?? 0) };
   }
 
+  async platformUsage() {
+    return this.sql<{ provider: string; resource: string; used: number; limit: number; unit: string }[]>`
+      select provider, resource, used::float as used, "limit"::float as limit, unit
+      from platform_usage where date = (select max(date) from platform_usage)
+      order by provider, resource`;
+  }
+
   async stats(now: Date): Promise<Stats> {
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const [s] = await this.sql<Stats[]>`
