@@ -291,7 +291,7 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 23. Write `job/sources/registry.py`. Return the Active Source from `STORE_SOURCE` and the Fallback Source from `STORE_SOURCE_FALLBACK`.
 24. Save raw responses for 3 Apps (one large, one small, one removed) to `contracts/fixtures/`.
 25. Write the contract tests. Run every Source Adapter against `contracts/fixtures/`.
-26. Write `worker/src/sources/lookup.ts` with the Lookup Adapter.
+26. Write `web/src/sources/lookup.ts` with the Lookup Adapter.
 27. Run the Lookup Adapter against `contracts/fixtures/`.
 28. Add a CI check that fails when any file outside `job/sources/` imports `google_play_scraper`.
 
