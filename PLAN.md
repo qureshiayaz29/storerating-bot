@@ -72,8 +72,8 @@ Rejected approaches:
 - **Pace Alert** — the Admin Telegram message sent when projected month-end spend is more than the Monthly Budget, even below 70%.
 - **Kill Switch** — `CLAUDE_ENABLED=false`. Stops every Claude call at once; Updates continue in Degrade Mode.
 - **Platform Limits** — the free-tier limits the project depends on, stored in `config` so they can be updated when providers change them. Vercel Hobby: 1,000,000 function invocations, 4 CPU-hours active CPU, 360 GB-hours provisioned memory, 100 GB fast data transfer, 10 GB fast origin transfer per month. GitHub Actions: free on public repositories, 6 hours per job, scheduled workflows disabled after 60 days without repository activity.
-- **Vercel Usage** — month-to-date Vercel usage per resource, stored daily in `platform_usage`. Source order: (1) Vercel billing charges API (`/v1/billing/charges`) with `VERCEL_TOKEN`; (2) Self-Metering when the API returns no quantities for the Hobby plan.
-- **Self-Metering** — every Web Project request adds 1 to an invocation counter and its wall-clock duration to a duration counter in `fn_metrics`. Duration is an upper bound for active CPU.
+- **Vercel Usage** — month-to-date Vercel usage per resource, stored daily in `platform_usage`. Source on Hobby: Self-Metering. The Vercel billing charges API (`/v1/billing/charges`) returns "Plan not found" for Hobby teams (checked 29 Oct 2026); it becomes the source only after a move to Pro. The official numbers stay visible on the Vercel dashboard Usage page, linked from the Limits Page.
+- **Self-Metering** — every Web Project request adds 1 to an invocation counter, its wall-clock duration to a duration counter and its response size to a bytes counter in `fn_metrics`. Duration is an upper bound for active CPU, so alerts fire early rather than late.
 - **Vercel Usage Alert** — the Admin Telegram message sent when any Vercel resource reaches 70% of its Platform Limit. Same format as the Top-up Alert. A second alert at 90%.
 - **Keepalive Workflow** — `.github/workflows/keepalive.yml`. Runs on the 1st of every month and pushes an empty commit, so scheduled workflows are never disabled for inactivity.
 - **Watchdog** — a Vercel cron route `/api/cron/watchdog`, daily. Alerts the Admin when the last successful Daily Job is older than 26 hours or when any workflow has state `disabled_inactivity`, and re-enables that workflow through the GitHub API.
@@ -171,7 +171,7 @@ Managing Apps is available anytime from `/apps`: pause or resume one App, remove
 - `config` — `key` (PK), `value`, `updated_at`. Holds `monthly_budget_usd`.
 - `daily_stats` — `date` (PK), `users_total`, `users_new`, `dau_active`, `dau_reached`, `blocked_total`, `blocked_new`, `apps_watched`, `updates_sent`, `alerts_sent`, `claude_cost_usd`, `d1_retention`, `d7_retention`, `d30_retention`
 - `platform_usage` — `date`, `provider` (`vercel` | `github` | `supabase`), `resource`, `used`, `limit`, `unit`, `source` (`api` | `self_metered`) (PK `date`, `provider`, `resource`)
-- `fn_metrics` — `date`, `route`, `invocations`, `duration_ms_total` (PK `date`, `route`)
+- `fn_metrics` — `date`, `route`, `invocations`, `duration_ms_total`, `response_bytes_total` (PK `date`, `route`)
 - `events` — `id`, `chat_id`, `event`, `props` (JSON), `ts`
 - `job_runs` — `id`, `started_at`, `finished_at`, `apps_fetched`, `apps_failed`, `reviews_processed`, `claude_calls`, `claude_tokens_in`, `claude_tokens_out`, `cards_rendered`, `sent`, `failed`, `rate_limited`
 - `errors` — `id`, `source` (`store_source` | `claude` | `render` | `telegram` | `web`), `package`, `message`, `stack`, `ts`
@@ -246,7 +246,7 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
   ⚠️ Vercel usage at 70%
   Function invocations: 702,113 of 1,000,000
   Active CPU: 1.1 of 4 CPU-hours (28%)
-  Source: Vercel API · 12 days left in period
+  Source: self-metered · 12 days left in period
   Over 100% pauses the bot's web parts for up to 30 days.
   ```
 
@@ -254,7 +254,7 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 | Section | Shows | Source |
 |---|---|---|
 | Claude | Month-to-date spend vs Monthly Budget, projection, Degrade Mode state | `spend`, `config` |
-| Vercel | Each resource: used vs Hobby limit with % bar, source (API or self-metered), daily trend | `platform_usage`, `fn_metrics` |
+| Vercel | Invocations, active CPU (upper bound) and data transfer: used vs Hobby limit with % bar, daily trend, link to the official Vercel Usage page | `platform_usage`, `fn_metrics` |
 | GitHub Actions | Last run and status per workflow, workflow state, days since last repository activity, next keepalive date | GitHub API, `job_runs` |
 | Database | Database size vs free-tier limit, largest tables | `pg_database_size`, `pg_total_relation_size` |
 
@@ -452,38 +452,35 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 ### Phase 12 — Platform Limits
 123. Add the tables `platform_usage` and `fn_metrics` from "Data model".
 124. Insert the Platform Limits into `config`.
-125. Create a read-only Vercel access token. Add it as the repository secret `VERCEL_TOKEN`.
-126. Write `job/platform_usage.py`. Read month-to-date usage from `/v1/billing/charges` for the Vercel team.
-127. Write one `platform_usage` row per Vercel resource with `source = api` when the API returns quantities.
-128. Wrap every Web Project route in a metering middleware. Add 1 invocation and the request duration to `fn_metrics`.
-129. Write one `platform_usage` row per Vercel resource with `source = self_metered` from `fn_metrics` when the API returns no quantities.
-130. Send the Vercel Usage Alert at 70% and at 90% of any resource, once per threshold per period.
-131. Add the Vercel resources to the `/budget` reply.
-132. Write `.github/workflows/keepalive.yml`. Push an empty commit on the 1st of every month with the `GITHUB_TOKEN` and `contents: write` permission.
-133. Write the Watchdog route `/api/cron/watchdog` in the Web Project. Protect it with `CRON_SECRET`.
-134. Add the Watchdog to the `crons` list in `web/vercel.json`, daily at 07:00 IST.
-135. In the Watchdog, read the latest successful `job_runs` row. Send an Admin alert when it is older than 26 hours.
-136. In the Watchdog, read every workflow state from the GitHub API. Re-enable each workflow with state `disabled_inactivity`. Send an Admin alert.
-137. Write the Supabase database size to `platform_usage` in the Daily Job.
+125. Wrap every Web Project route in a metering middleware. Add 1 invocation, the request duration and the response size to `fn_metrics`.
+126. Write `job/platform_usage.py`. Sum `fn_metrics` for the current period and write one `platform_usage` row per Vercel resource with `source = self_metered`.
+127. Send the Vercel Usage Alert at 70% and at 90% of any resource, once per threshold per period.
+128. Add the Vercel resources to the `/budget` reply.
+129. Write `.github/workflows/keepalive.yml`. Push an empty commit on the 1st of every month with the `GITHUB_TOKEN` and `contents: write` permission.
+130. Write the Watchdog route `/api/cron/watchdog` in the Web Project. Protect it with `CRON_SECRET`.
+131. Add the Watchdog to the `crons` list in `web/vercel.json`, daily at 07:00 IST.
+132. In the Watchdog, read the latest successful `job_runs` row. Send an Admin alert when it is older than 26 hours.
+133. In the Watchdog, read every workflow state from the GitHub API. Re-enable each workflow with state `disabled_inactivity`. Send an Admin alert.
+134. Write the Supabase database size to `platform_usage` in the Daily Job.
 
 ### Phase 13 — Admin and Dashboard
-138. Implement the `/stats` handler for the Admin only.
-139. Write the stats builder in the Daily Job. Write one `daily_stats` row for yesterday.
-140. Add the Stats API routes `/admin/api/overview`, `/retention`, `/funnel`, `/apps`, `/jobs`, `/errors`, `/budget` to the Webhook Function.
-141. Build `/admin/login` with the Telegram Login Widget.
-142. Verify the Telegram Login hash on the server. Reject logins older than 1 day.
-143. Issue the Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`.
-144. Check the Admin Session in every `/admin` page and every Stats API route. Redirect pages to `/admin/login`. Return HTTP 401 from the API.
-145. Build the Dashboard pages in `web/src/pages/admin/`.
-146. Build the Limits Page with % bars for Claude, Vercel, GitHub Actions and the database.
-147. Add the domain `storerating.ayazqureshi.com` to the Vercel project.
-148. Implement the weekly Admin report Card.
+135. Implement the `/stats` handler for the Admin only.
+136. Write the stats builder in the Daily Job. Write one `daily_stats` row for yesterday.
+137. Add the Stats API routes `/admin/api/overview`, `/retention`, `/funnel`, `/apps`, `/jobs`, `/errors`, `/budget` to the Webhook Function.
+138. Build `/admin/login` with the Telegram Login Widget.
+139. Verify the Telegram Login hash on the server. Reject logins older than 1 day.
+140. Issue the Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`.
+141. Check the Admin Session in every `/admin` page and every Stats API route. Redirect pages to `/admin/login`. Return HTTP 401 from the API.
+142. Build the Dashboard pages in `web/src/pages/admin/`.
+143. Build the Limits Page with % bars for Claude, Vercel, GitHub Actions and the database.
+144. Add the domain `storerating.ayazqureshi.com` to the Vercel project.
+145. Implement the weekly Admin report Card.
 
 ### Phase 14 — Launch
-149. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
-150. Add the privacy note to the Bot description and the README.
-151. Test every command with a second Telegram account.
-152. Announce the Bot on LinkedIn and Inside Android.
+146. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
+147. Add the privacy note to the Bot description and the README.
+148. Test every command with a second Telegram account.
+149. Announce the Bot on LinkedIn and Inside Android.
 
 ## Done when
 
@@ -530,7 +527,7 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 - The 21st add or remove action within one hour from one User changes nothing and writes an `action_limited` Event.
 - Removing and re-adding the same App on the same day creates no new `on_demand` row.
 - Inserting test `platform_usage` rows at 70% of Vercel function invocations sends exactly one Vercel Usage Alert to `ADMIN_CHAT_ID`.
-- `select count(*) from platform_usage where date = current_date and provider = 'vercel'` is at least 2 after the Daily Job, with `source` set to `api` or `self_metered`.
+- `select count(*) from platform_usage where date = current_date and provider = 'vercel'` is 3 after the Daily Job (invocations, active CPU, data transfer).
 - `fn_metrics.invocations` for today increases by 1 after one Bot command.
 - The Keepalive Workflow creates one commit on the 1st of the month.
 - Disabling the Daily Job workflow by hand: the next Watchdog run re-enables it and sends an Admin alert.
