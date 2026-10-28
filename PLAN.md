@@ -43,6 +43,10 @@ Rejected approaches:
 - **Digest Time** — the local time a User receives Daily Updates. Default 11:00, timezone default `Asia/Kolkata`.
 - **Global Pause** — `users.paused = true`. No Updates or Alerts to that User.
 - **App Pause** — `watchlist.paused = true`. No Updates or Alerts for that App to that User.
+- **On-demand Run** — a one-off Daily Job run for Apps that have no Card for today, started by the Webhook Worker through `repository_dispatch`.
+- **New-App Quota** — the maximum number of On-demand Run Apps one User can trigger per day. Value: 5.
+- **On-demand Budget** — the maximum number of On-demand Run Apps across all Users per day. Value: 200.
+- **Action Limit** — the maximum number of add and remove actions one User can do per hour. Value: 20.
 - **Event** — one row in the `events` table describing a User action or delivery result.
 - **Dashboard** — the Admin-only web page that shows metrics.
 
@@ -86,6 +90,16 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - `/add <link or package>`, or paste a Play Store link.
 - `/apps` lists Apps with inline buttons: Pause, Resume, Remove (with confirmation), Add, Pause all.
 - At 10 Apps, `/add` shows the Watchlist with Remove buttons.
+- After `/add`, the User gets an Update for that App immediately:
+  - App already has today's Card → the Worker sends the stored `file_id` at once. No cost.
+  - App has no Card today → the Worker replies with basic listing data, then starts an On-demand Run. The Card arrives in about 2–5 minutes. Adds within 60 seconds share one On-demand Run.
+- Remove keeps the App's data. Re-adding the same App the same day sends the stored Card, so add/remove churn costs nothing.
+- Abuse limits:
+  - Above the New-App Quota, the App is added, and its first Update arrives at the next Digest Time.
+  - Above the On-demand Budget, same behaviour for every User, and the Admin gets an alert.
+  - Above the Action Limit, the Bot replies "Too many changes, try again in a few minutes" and changes nothing.
+  - Users who hit the Action Limit 3 times in a day are flagged on the Dashboard.
+- The Daily Job processes only Apps that have at least one Watcher when it starts, so removed Apps stop costing.
 
 **Notifications**
 - `/pause`, `/resume` — Global Pause.
@@ -182,26 +196,46 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 52. Set `disable_notification` on every Update after the first per User per run.
 53. Send Updates per User at their Digest Time.
 
-### Phase 8 — Schedule
-54. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
-55. Write the send workflow with a cron every 30 minutes for Digest Times.
-56. Write the Monthly and Quarterly Report workflows.
-57. Write a `job_runs` row at the end of every workflow.
-58. Send an Admin alert when a workflow fails.
+### Phase 8 — On-demand Runs
+54. Add the table `on_demand` with `chat_id`, `package`, `requested_at`, `status`.
+55. In the `/add` handler, look up today's Card for the App in `cards`.
+56. Send the stored `file_id` to the User when today's Card exists.
+57. Reply with basic listing data when today's Card does not exist.
+58. Count the User's On-demand Run Apps for today in `on_demand`.
+59. Skip the On-demand Run when the count is at the New-App Quota. Reply that the first Update arrives at the next Digest Time.
+60. Count all On-demand Run Apps for today in `on_demand`.
+61. Skip the On-demand Run when the count is at the On-demand Budget. Send an Admin alert once per day.
+62. Insert a pending row into `on_demand`.
+63. Start the On-demand Run with `repository_dispatch` 60 seconds after the last pending row for that User.
+64. Write `.github/workflows/on-demand.yml` triggered by `repository_dispatch`.
+65. In the On-demand Run, Fetch every pending App, make one standard Claude call per App, render the Card, send it, and store the `file_id` in `cards`.
+66. Set the `on_demand` rows to `done` or `failed`.
+67. Count add and remove actions per User in the last hour from `events`.
+68. Reject the action and reply "Too many changes, try again in a few minutes" when the count is at the Action Limit.
+69. Write an Event `action_limited` for every rejected action.
+70. Show Users with 3 or more `action_limited` Events in one day on the Dashboard.
+71. In the Daily Job, select only Apps with at least one row in `watchlist`.
 
-### Phase 9 — Admin and Dashboard
-59. Implement the `/stats` handler for the Admin only.
-60. Write the stats builder that writes `stats.json`: DAU (active and reached), new Users, D1/D7/D30 retention, funnel, block rate, top Apps, failed `/add` reasons, job runs, errors.
-61. Build the Dashboard pages in `dashboard/`.
-62. Deploy the Dashboard to Cloudflare Pages.
-63. Protect the Dashboard with Cloudflare Access for the Admin email only.
-64. Implement the weekly Admin report Card.
+### Phase 9 — Schedule
+72. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
+73. Write the send workflow with a cron every 30 minutes for Digest Times.
+74. Write the Monthly and Quarterly Report workflows.
+75. Write a `job_runs` row at the end of every workflow.
+76. Send an Admin alert when a workflow fails.
 
-### Phase 10 — Launch
-65. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
-66. Add the privacy note to the Bot description and the README.
-67. Test every command with a second Telegram account.
-68. Announce the Bot on LinkedIn and Inside Android.
+### Phase 10 — Admin and Dashboard
+77. Implement the `/stats` handler for the Admin only.
+78. Write the stats builder that writes `stats.json`: DAU (active and reached), new Users, D1/D7/D30 retention, funnel, block rate, top Apps, failed `/add` reasons, job runs, errors.
+79. Build the Dashboard pages in `dashboard/`.
+80. Deploy the Dashboard to Cloudflare Pages.
+81. Protect the Dashboard with Cloudflare Access for the Admin email only.
+82. Implement the weekly Admin report Card.
+
+### Phase 11 — Launch
+83. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
+84. Add the privacy note to the Bot description and the README.
+85. Test every command with a second Telegram account.
+86. Announce the Bot on LinkedIn and Inside Android.
 
 ## Done when
 
@@ -217,4 +251,10 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - `job_runs` has one row per workflow run with non-zero `apps_fetched`.
 - Claude spend for one day with all Apps stays under the estimate shown in `job_runs` tokens × Haiku 5.5 batch rates.
 - The Dashboard loads for the Admin email and returns an Access login page for any other email.
+- Adding an App that already has today's Card returns that Card within 2 seconds, and no `on_demand` row is created.
+- Adding an App with no Card today returns basic listing data within 2 seconds and the Card within 5 minutes.
+- Adding 5 new Apps within 60 seconds starts exactly one On-demand Run.
+- The 6th new-App add in one day from one User creates no `on_demand` row.
+- The 21st add or remove action within one hour from one User changes nothing and writes an `action_limited` Event.
+- Removing and re-adding the same App on the same day creates no new `on_demand` row.
 - Every GitHub Actions workflow shows green for 7 consecutive days.
