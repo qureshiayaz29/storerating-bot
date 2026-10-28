@@ -29,6 +29,8 @@ Rejected approaches:
 - **Bot** — the Telegram bot `@storeratingbot`.
 - **User** — a Telegram chat that has sent `/start` to the Bot.
 - **Admin** — Ayaz; identified by `ADMIN_CHAT_ID`.
+- **Admin Command** — `/stats`, `/budget`, `/setbudget`. Works only for the Admin.
+- **Admin Check** — the single function `isAdmin(update)` in the Webhook Worker. True only when `message.from.id` equals `ADMIN_CHAT_ID` and the chat type is `private`.
 - **App** — a Google Play listing identified by its package name (e.g. `com.whatsapp`).
 - **Watchlist** — the set of Apps a User follows. Maximum 10 Apps.
 - **Watcher** — a User who has a given App in their Watchlist.
@@ -181,6 +183,16 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - Every budget alert and `/budget` reply ends with this reminder.
 - Dashboard shows spend per day, per source and per App, and cost per active User.
 
+**Admin access**
+- Every Admin Command, Admin alert, budget alert, Top-up Alert, Pace Alert, weekly Admin report and the Dashboard are for the Admin only.
+- Admin Commands run only after the Admin Check. Checking the sender ID, not only the chat ID, blocks use from groups the Admin is in.
+- For anyone else, Admin Commands get the same reply as an unknown command, so their existence is not revealed.
+- Every rejected Admin Command writes an Event `admin_denied` with the sender's `chat_id`.
+- Admin Commands appear in the command menu only in the Admin's chat (`setMyCommands` with `BotCommandScopeChat`).
+- Admin alerts are sent only to `ADMIN_CHAT_ID`, never to Users.
+- The Webhook Worker rejects requests without the correct `X-Telegram-Bot-Api-Secret-Token` header, so nobody can fake a Telegram update.
+- The Dashboard is behind Cloudflare Access for the Admin email only.
+
 **Admin**
 - Admin alerts in Telegram: Daily Job failure, Store Source health-check failure, Fallback Source in use, Claude spend over threshold, block-rate spike.
 - `/stats` (Admin only).
@@ -225,49 +237,54 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 ### Phase 3 — Webhook Worker
 28. Create the Worker project in `worker/` with Wrangler.
 29. Add `BOT_TOKEN`, `DATABASE_URL` and `ADMIN_CHAT_ID` as Worker secrets.
-30. Implement the `/start` handler. Insert the User into `users`.
-31. Implement the `/add` handler. Validate the package with the Lookup Adapter. Insert the row into `watchlist`. Insert the App into `apps`.
-32. Implement the 10-App limit in the `/add` handler.
-33. Implement the `/apps` handler with inline buttons.
-34. Implement the Pause, Resume and Remove button callbacks with `editMessageText`.
-35. Implement the `/pause` and `/resume` handlers.
-36. Implement the `/settings` handler.
-37. Implement the `/delete` handler.
-38. Write an Event for every handler.
-39. Write an `errors` row for every caught exception.
-40. Deploy the Worker.
-41. Set the Telegram webhook to the Worker URL with `setWebhook` and a secret token.
+30. Reject every webhook request without the correct `X-Telegram-Bot-Api-Secret-Token` header with HTTP 401.
+31. Implement the Admin Check `isAdmin(update)`.
+32. Route every Admin Command through the Admin Check.
+33. Reply to a rejected Admin Command with the unknown-command reply. Write an Event `admin_denied`.
+34. Set the Admin command menu with `setMyCommands` and `BotCommandScopeChat` for `ADMIN_CHAT_ID`: `stats`, `budget`, `setbudget`.
+35. Implement the `/start` handler. Insert the User into `users`.
+36. Implement the `/add` handler. Validate the package with the Lookup Adapter. Insert the row into `watchlist`. Insert the App into `apps`.
+37. Implement the 10-App limit in the `/add` handler.
+38. Implement the `/apps` handler with inline buttons.
+39. Implement the Pause, Resume and Remove button callbacks with `editMessageText`.
+40. Implement the `/pause` and `/resume` handlers.
+41. Implement the `/settings` handler.
+42. Implement the `/delete` handler.
+43. Write an Event for every handler.
+44. Write an `errors` row for every caught exception.
+45. Deploy the Worker.
+46. Set the Telegram webhook to the Worker URL with `setWebhook` and a secret token.
 
 ### Phase 4 — Fetch and Snapshots
-42. Create the Python package in `job/`.
-43. Implement the Fetch through `registry.py` for one App.
-44. Use the Fallback Source when the Active Source raises `SourceError` with `blocked`, `rate_limited` or `parse_failed`. Write an `errors` row.
-45. Write the Snapshot to `app_snapshots` with `source_adapter`.
-46. Update `app_cursor` with the newest Review.
-47. Implement the Store Source health check: Fetch `com.whatsapp` with the Active Source and validate the Listing against the JSON Schema.
-48. Send an Admin alert when the health check fails or when the Fallback Source is used.
+47. Create the Python package in `job/`.
+48. Implement the Fetch through `registry.py` for one App.
+49. Use the Fallback Source when the Active Source raises `SourceError` with `blocked`, `rate_limited` or `parse_failed`. Write an `errors` row.
+50. Write the Snapshot to `app_snapshots` with `source_adapter`.
+51. Update `app_cursor` with the newest Review.
+52. Implement the Store Source health check: Fetch `com.whatsapp` with the Active Source and validate the Listing against the JSON Schema.
+53. Send an Admin alert when the health check fails or when the Fallback Source is used.
 
 ### Phase 5 — Alert Events
-49. Implement the diff between today's Snapshot and the previous Snapshot.
-50. Detect each Alert Event type.
-51. Send Alerts to every Watcher without App Pause or Global Pause.
+54. Implement the diff between today's Snapshot and the previous Snapshot.
+55. Detect each Alert Event type.
+56. Send Alerts to every Watcher without App Pause or Global Pause.
 
 ### Phase 6 — Budget Guardrails
-52. Add the table `spend` from "Data model".
-53. Check that the Anthropic Console spend limit equals the Monthly Budget.
-54. Add `MONTHLY_BUDGET_USD` and `CLAUDE_ENABLED` as repository secrets and Worker secrets.
-55. Write the module `job/budget.py` with the Haiku 5.5 standard and batch rates per million tokens.
-56. Implement the function `remaining_today()`: Daily Budget plus unused budget from earlier days this month, minus today's spend in the Spend Ledger.
-57. Implement the function `can_spend(estimated_cost)`. Return false when `CLAUDE_ENABLED` is false or when `estimated_cost` is more than `remaining_today()`.
-58. Implement the token estimate for a prompt before sending.
-59. Reject every prompt with an estimate over 100,000 tokens.
-60. Wrap every Claude call in `can_spend()`.
-61. Write one Spend Ledger row after every Claude call with the token counts from the API response.
-62. Sort Apps in Priority Order before Summaries.
-63. Switch to Degrade Mode when today's spend reaches 80% of the Daily Budget.
-64. Skip the Summary for every App with fewer than 5 new reviews.
-65. Send an Admin alert at 50%, 80% and 100% of the Monthly Budget, once per threshold per month.
-66. Send the Top-up Alert at 70% of the Monthly Budget, once per month. Format:
+57. Add the table `spend` from "Data model".
+58. Check that the Anthropic Console spend limit equals the Monthly Budget.
+59. Add `MONTHLY_BUDGET_USD` and `CLAUDE_ENABLED` as repository secrets and Worker secrets.
+60. Write the module `job/budget.py` with the Haiku 5.5 standard and batch rates per million tokens.
+61. Implement the function `remaining_today()`: Daily Budget plus unused budget from earlier days this month, minus today's spend in the Spend Ledger.
+62. Implement the function `can_spend(estimated_cost)`. Return false when `CLAUDE_ENABLED` is false or when `estimated_cost` is more than `remaining_today()`.
+63. Implement the token estimate for a prompt before sending.
+64. Reject every prompt with an estimate over 100,000 tokens.
+65. Wrap every Claude call in `can_spend()`.
+66. Write one Spend Ledger row after every Claude call with the token counts from the API response.
+67. Sort Apps in Priority Order before Summaries.
+68. Switch to Degrade Mode when today's spend reaches 80% of the Daily Budget.
+69. Skip the Summary for every App with fewer than 5 new reviews.
+70. Send an Admin alert at 50%, 80% and 100% of the Monthly Budget, once per threshold per month.
+71. Send the Top-up Alert at 70% of the Monthly Budget, once per month. Format:
     ```
     💰 StoreRating budget at 70%
     Spent $21.00 of $30.00 · $9.00 left
@@ -275,78 +292,78 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
     Top up: https://console.anthropic.com/settings/billing
     To spend more: top up, raise the Console limit, then /setbudget <amount>
     ```
-67. Compute the projected month-end spend as month-to-date spend ÷ days elapsed × days in month.
-68. Send the Pace Alert when the projected month-end spend is more than the Monthly Budget, at most once per 3 days.
-69. Add a `/budget` handler for the Admin only. Reply with the Top-up Alert text for the current state.
-70. Read the Monthly Budget from the `config` table in `job/budget.py` and in the Webhook Worker. Use `MONTHLY_BUDGET_USD` only to seed the row.
-71. Add a `/setbudget <amount>` handler for the Admin only. Update `monthly_budget_usd` in `config`.
-72. Reply to `/setbudget` with the new budget, the new Daily Budget and the reminder: "Check that the Anthropic Console spend limit is at least $<amount>."
-73. Reset the 50%, 70%, 80% and 100% alert flags for the month when the Monthly Budget changes.
-74. Write a test that runs the Summary step with a $0.01 Daily Budget and asserts Degrade Mode.
+72. Compute the projected month-end spend as month-to-date spend ÷ days elapsed × days in month.
+73. Send the Pace Alert when the projected month-end spend is more than the Monthly Budget, at most once per 3 days.
+74. Add a `/budget` handler for the Admin only. Reply with the Top-up Alert text for the current state.
+75. Read the Monthly Budget from the `config` table in `job/budget.py` and in the Webhook Worker. Use `MONTHLY_BUDGET_USD` only to seed the row.
+76. Add a `/setbudget <amount>` handler for the Admin only. Update `monthly_budget_usd` in `config`.
+77. Reply to `/setbudget` with the new budget, the new Daily Budget and the reminder: "Check that the Anthropic Console spend limit is at least $<amount>."
+78. Reset the 50%, 70%, 80% and 100% alert flags for the month when the Monthly Budget changes.
+79. Write a test that runs the Summary step with a $0.01 Daily Budget and asserts Degrade Mode.
 
 ### Phase 7 — Summaries
-75. Implement the review filter: star split, junk removal, rank by thumbs-up and recency, cap at 150 reviews per side.
-76. Write the Summary prompt. Return JSON with themes, shares, one short example each and a one-line verdict.
-77. Submit all Apps as one Batch API request.
-78. Poll the batch until it ends.
-79. Fall back to a standard API call for every App without a result at 10:45 local.
-80. Write each Summary to `summaries`.
-81. Log tokens in `job_runs`.
+80. Implement the review filter: star split, junk removal, rank by thumbs-up and recency, cap at 150 reviews per side.
+81. Write the Summary prompt. Return JSON with themes, shares, one short example each and a one-line verdict.
+82. Submit all Apps as one Batch API request.
+83. Poll the batch until it ends.
+84. Fall back to a standard API call for every App without a result at 10:45 local.
+85. Write each Summary to `summaries`.
+86. Log tokens in `job_runs`.
 
 ### Phase 8 — Cards
-82. Move the Card HTML template to `job/card/`.
-83. Render one Card per changed App with Playwright.
-84. Write the caption template. Keep it under 1,024 characters.
+87. Move the Card HTML template to `job/card/`.
+88. Render one Card per changed App with Playwright.
+89. Write the caption template. Keep it under 1,024 characters.
 
 ### Phase 9 — Sending
-85. Implement the send queue with a pace of 25 messages per second overall and 1 per second per chat.
-86. Retry on HTTP 429 after `retry_after` seconds.
-87. Set `users.blocked = true` on HTTP 403.
-88. Send the Card to the first Watcher with `sendPhoto`. Store the returned `file_id` in `cards`.
-89. Send the stored `file_id` to every other Watcher.
-90. Set `disable_notification` on every Update after the first per User per run.
-91. Send Updates per User at their Digest Time.
+90. Implement the send queue with a pace of 25 messages per second overall and 1 per second per chat.
+91. Retry on HTTP 429 after `retry_after` seconds.
+92. Set `users.blocked = true` on HTTP 403.
+93. Send the Card to the first Watcher with `sendPhoto`. Store the returned `file_id` in `cards`.
+94. Send the stored `file_id` to every other Watcher.
+95. Set `disable_notification` on every Update after the first per User per run.
+96. Send Updates per User at their Digest Time.
 
 ### Phase 10 — On-demand Runs
-92. Add the table `on_demand` with `chat_id`, `package`, `requested_at`, `status`.
-93. In the `/add` handler, look up today's Card for the App in `cards`.
-94. Send the stored `file_id` to the User when today's Card exists.
-95. Reply with basic listing data when today's Card does not exist.
-96. Count the User's On-demand Run Apps for today in `on_demand`.
-97. Skip the On-demand Run when the count is at the New-App Quota. Reply that the first Update arrives at the next Digest Time.
-98. Count all On-demand Run Apps for today in `on_demand`.
-99. Skip the On-demand Run when the count is at the On-demand Budget. Send an Admin alert once per day.
-100. Insert a pending row into `on_demand`.
-101. Start the On-demand Run with `repository_dispatch` 60 seconds after the last pending row for that User.
-102. Write `.github/workflows/on-demand.yml` triggered by `repository_dispatch`.
-103. In the On-demand Run, Fetch every pending App, make one standard Claude call per App, render the Card, send it, and store the `file_id` in `cards`.
-104. Set the `on_demand` rows to `done` or `failed`.
-105. Count add and remove actions per User in the last hour from `events`.
-106. Reject the action and reply "Too many changes, try again in a few minutes" when the count is at the Action Limit.
-107. Write an Event `action_limited` for every rejected action.
-108. Show Users with 3 or more `action_limited` Events in one day on the Dashboard.
-109. In the Daily Job, select only Apps with at least one row in `watchlist`.
+97. Add the table `on_demand` with `chat_id`, `package`, `requested_at`, `status`.
+98. In the `/add` handler, look up today's Card for the App in `cards`.
+99. Send the stored `file_id` to the User when today's Card exists.
+100. Reply with basic listing data when today's Card does not exist.
+101. Count the User's On-demand Run Apps for today in `on_demand`.
+102. Skip the On-demand Run when the count is at the New-App Quota. Reply that the first Update arrives at the next Digest Time.
+103. Count all On-demand Run Apps for today in `on_demand`.
+104. Skip the On-demand Run when the count is at the On-demand Budget. Send an Admin alert once per day.
+105. Insert a pending row into `on_demand`.
+106. Start the On-demand Run with `repository_dispatch` 60 seconds after the last pending row for that User.
+107. Write `.github/workflows/on-demand.yml` triggered by `repository_dispatch`.
+108. In the On-demand Run, Fetch every pending App, make one standard Claude call per App, render the Card, send it, and store the `file_id` in `cards`.
+109. Set the `on_demand` rows to `done` or `failed`.
+110. Count add and remove actions per User in the last hour from `events`.
+111. Reject the action and reply "Too many changes, try again in a few minutes" when the count is at the Action Limit.
+112. Write an Event `action_limited` for every rejected action.
+113. Show Users with 3 or more `action_limited` Events in one day on the Dashboard.
+114. In the Daily Job, select only Apps with at least one row in `watchlist`.
 
 ### Phase 11 — Schedule
-110. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
-111. Write the send workflow with a cron every 30 minutes for Digest Times.
-112. Write the Monthly and Quarterly Report workflows.
-113. Write a `job_runs` row at the end of every workflow.
-114. Send an Admin alert when a workflow fails.
+115. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
+116. Write the send workflow with a cron every 30 minutes for Digest Times.
+117. Write the Monthly and Quarterly Report workflows.
+118. Write a `job_runs` row at the end of every workflow.
+119. Send an Admin alert when a workflow fails.
 
 ### Phase 12 — Admin and Dashboard
-115. Implement the `/stats` handler for the Admin only.
-116. Write the stats builder that writes `stats.json`: DAU (active and reached), new Users, D1/D7/D30 retention, funnel, block rate, top Apps, failed `/add` reasons, job runs, errors.
-117. Build the Dashboard pages in `dashboard/`.
-118. Deploy the Dashboard to Cloudflare Pages.
-119. Protect the Dashboard with Cloudflare Access for the Admin email only.
-120. Implement the weekly Admin report Card.
+120. Implement the `/stats` handler for the Admin only.
+121. Write the stats builder that writes `stats.json`: DAU (active and reached), new Users, D1/D7/D30 retention, funnel, block rate, top Apps, failed `/add` reasons, job runs, errors.
+122. Build the Dashboard pages in `dashboard/`.
+123. Deploy the Dashboard to Cloudflare Pages.
+124. Protect the Dashboard with Cloudflare Access for the Admin email only.
+125. Implement the weekly Admin report Card.
 
 ### Phase 13 — Launch
-121. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
-122. Add the privacy note to the Bot description and the README.
-123. Test every command with a second Telegram account.
-124. Announce the Bot on LinkedIn and Inside Android.
+126. Write the privacy note: "We store your chat ID, timezone and watchlist. Nothing else. /delete removes it all."
+127. Add the privacy note to the Bot description and the README.
+128. Test every command with a second Telegram account.
+129. Announce the Bot on LinkedIn and Inside Android.
 
 ## Done when
 
@@ -375,6 +392,10 @@ Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_
 - `/budget` from the Admin returns the current budget state; `/budget` from any other User returns nothing.
 - `/setbudget 40` from the Admin sets `monthly_budget_usd` to 40, and the next run uses the new Daily Budget without a redeploy.
 - `/setbudget` from any other User changes nothing.
+- `/stats`, `/budget` and `/setbudget` from a second Telegram account get the unknown-command reply and write an `admin_denied` Event.
+- `/stats` sent by the Admin in a group chat gets no Admin reply.
+- The command menu shows `stats`, `budget` and `setbudget` in the Admin's chat and not in a second account's chat.
+- `curl -X POST <worker-url>` without the secret header returns HTTP 401.
 - Every budget alert ends with the top-up, Console limit and `/setbudget` reminder.
 - With money left for only half the Apps, the Apps with the most Watchers get Summaries first.
 - The Dashboard loads for the Admin email and returns an Access login page for any other email.
