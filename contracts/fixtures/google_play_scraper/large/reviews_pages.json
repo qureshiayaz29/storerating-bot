@@ -1,0 +1,45 @@
+[
+  [
+    {
+      "reviewId": "r-large-3",
+      "userName": "A User",
+      "userImage": "https://x/y",
+      "content": "Messages stuck sending since the update",
+      "score": 1,
+      "thumbsUpCount": 412,
+      "reviewCreatedVersion": "2.26.21.7",
+      "at": "2026-10-28T08:15:00+00:00",
+      "replyContent": null,
+      "repliedAt": null,
+      "appVersion": "2.26.21.7"
+    },
+    {
+      "reviewId": "r-large-2",
+      "userName": "B User",
+      "userImage": "https://x/z",
+      "content": "Works great",
+      "score": 5,
+      "thumbsUpCount": 3,
+      "reviewCreatedVersion": null,
+      "at": "2026-10-28T07:00:00+00:00",
+      "replyContent": null,
+      "repliedAt": null,
+      "appVersion": null
+    }
+  ],
+  [
+    {
+      "reviewId": "r-large-1",
+      "userName": "C User",
+      "userImage": "https://x/w",
+      "content": "",
+      "score": 3,
+      "thumbsUpCount": 0,
+      "reviewCreatedVersion": "2.26.20.1",
+      "at": "2026-10-27T23:59:59+00:00",
+      "replyContent": null,
+      "repliedAt": null,
+      "appVersion": null
+    }
+  ]
+]

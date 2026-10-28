@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/qureshiayaz29/storerating-bot/contracts/listing.schema.json",
+  "title": "Listing",
+  "description": "Normalised app listing returned by every Store Source adapter. Missing values are null, never adapter-specific.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "store", "package", "name", "developer", "icon_url", "version",
+    "rating", "review_count", "rating_histogram", "installs_tier",
+    "size", "updated_at", "release_notes"
+  ],
+  "properties": {
+    "store":            { "type": "string", "enum": ["google_play"] },
+    "package":          { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+$" },
+    "name":             { "type": "string", "minLength": 1 },
+    "developer":        { "type": ["string", "null"] },
+    "icon_url":         { "type": ["string", "null"], "format": "uri" },
+    "version":          { "type": ["string", "null"] },
+    "rating":           { "type": ["number", "null"], "minimum": 0, "maximum": 5 },
+    "review_count":     { "type": ["integer", "null"], "minimum": 0 },
+    "rating_histogram": {
+      "description": "Count of ratings for 1★ to 5★, in that order.",
+      "type": ["array", "null"],
+      "items": { "type": "integer", "minimum": 0 },
+      "minItems": 5,
+      "maxItems": 5
+    },
+    "installs_tier":    { "type": ["string", "null"] },
+    "size":             { "type": ["string", "null"] },
+    "updated_at":       { "type": ["string", "null"], "format": "date-time" },
+    "release_notes":    { "type": ["string", "null"] }
+  }
+}

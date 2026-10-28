@@ -1,0 +1,21 @@
+{
+  "store": "google_play",
+  "package": "com.example.chatlarge",
+  "name": "ChatLarge Messenger",
+  "developer": "Example Corp",
+  "icon_url": "https://play-lh.googleusercontent.com/example-icon-large",
+  "version": "Varies with device",
+  "rating": 4.19,
+  "review_count": 19873210,
+  "rating_histogram": [
+    1803210,
+    402110,
+    903221,
+    2004433,
+    14760236
+  ],
+  "installs_tier": "5,000,000,000+",
+  "size": null,
+  "updated_at": "2026-10-28T00:00:00+00:00",
+  "release_notes": "Bug fixes and performance improvements."
+}

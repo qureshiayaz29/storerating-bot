@@ -1,0 +1,10 @@
+[project]
+name = "storerating-job"
+version = "0.1.0"
+description = "StoreRating daily job: Store Source, summaries, cards, sending"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["job/tests"]
+addopts = "-q"

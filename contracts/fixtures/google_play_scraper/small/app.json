@@ -1,0 +1,20 @@
+{
+  "appId": "io.example.tinytodo",
+  "title": "Tiny Todo",
+  "developer": "Solo Dev",
+  "icon": null,
+  "version": "1.0.3",
+  "score": null,
+  "ratings": null,
+  "histogram": [
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "installs": "10+",
+  "size": "4.1M",
+  "updated": null,
+  "recentChanges": null
+}

@@ -1,0 +1,21 @@
+{
+  "store": "google_play",
+  "package": "io.example.tinytodo",
+  "name": "Tiny Todo",
+  "developer": "Solo Dev",
+  "icon_url": null,
+  "version": "1.0.3",
+  "rating": null,
+  "review_count": null,
+  "rating_histogram": [
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "installs_tier": "10+",
+  "size": "4.1M",
+  "updated_at": null,
+  "release_notes": null
+}

@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: job/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r job/requirements.txt
+
+      - name: Store Source import guard
+        run: python ci/check_imports.py
+
+      - name: Contract tests
+        run: python -m pytest
+
+      - name: Apply migrations to a throwaway Postgres
+        run: |
+          # Supabase API roles, so 002_rls.sql runs as it does on Supabase.
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -c "create role anon nologin; create role authenticated nologin;"
+          for f in db/*.sql; do
+            echo "Applying $f"
+            psql -h localhost -U postgres -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: Every table has Row Level Security
+        run: python ci/check_rls.py
+
+      - name: Public roles cannot read data
+        run: |
+          out=$(psql -h localhost -U postgres -At -c "set role anon; select count(*) from users;" 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q "permission denied"

@@ -1,0 +1,43 @@
+name: Record fixtures
+
+# Records real google-play-scraper output for Contract Fixtures and uploads it
+# as an artifact. Nothing is committed automatically: review the files, then
+# copy them into contracts/fixtures/ and update the expected files by hand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      large:
+        description: Package for the large case
+        default: com.whatsapp
+      small:
+        description: Package for the small case
+        default: org.fdroid.fdroid
+      removed:
+        description: Package that does not exist on Google Play
+        default: com.example.storerating.does.not.exist
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r job/requirements.txt
+      - name: Record
+        env:
+          LARGE: ${{ inputs.large }}
+          SMALL: ${{ inputs.small }}
+          REMOVED: ${{ inputs.removed }}
+        run: |
+          python -m job.record_fixtures recorded "large=$LARGE" "small=$SMALL" "removed=$REMOVED"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recorded-fixtures
+          path: recorded/
+          retention-days: 7

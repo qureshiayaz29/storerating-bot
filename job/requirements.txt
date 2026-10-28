@@ -1,0 +1,4 @@
+google-play-scraper==1.2.7
+jsonschema[format]>=4.23
+psycopg[binary]>=3.2
+pytest>=8

@@ -328,7 +328,7 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 21. Write `contracts/listing.schema.json` for the Listing.
 22. Write `contracts/review.schema.json` for the Review.
 23. Write `job/sources/base.py` with the `StoreSource` protocol, the `Listing` and `Review` dataclasses and `SourceError`.
-24. Write `job/sources/google_play_scraper.py` with `GooglePlayScraperAdapter`.
+24. Write `job/sources/google_play.py` with `GooglePlayScraperAdapter`.
 25. Map every library field to the Listing and the Review in `GooglePlayScraperAdapter`. Set unknown values to `null`.
 26. Map every library exception to a `SourceError` reason.
 27. Validate the adapter output against the JSON Schemas.

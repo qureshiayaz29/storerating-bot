@@ -1,0 +1,7 @@
+{
+  "package": "com.example.gone",
+  "kind": "removed",
+  "synthetic": true,
+  "raises": "NotFoundError",
+  "expected_reason": "not_found"
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/qureshiayaz29/storerating-bot/contracts/review.schema.json",
+  "title": "Review",
+  "description": "Normalised review returned by every Store Source adapter. No reviewer name or avatar, ever.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "stars", "text", "thumbs_up", "app_version", "created_at"],
+  "properties": {
+    "id":          { "type": "string", "minLength": 1 },
+    "stars":       { "type": "integer", "minimum": 1, "maximum": 5 },
+    "text":        { "type": "string" },
+    "thumbs_up":   { "type": "integer", "minimum": 0 },
+    "app_version": { "type": ["string", "null"] },
+    "created_at":  { "type": "string", "format": "date-time" }
+  }
+}

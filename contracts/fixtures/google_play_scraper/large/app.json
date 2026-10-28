@@ -1,0 +1,27 @@
+{
+  "appId": "com.example.chatlarge",
+  "title": "ChatLarge Messenger",
+  "developer": "Example Corp",
+  "icon": "https://play-lh.googleusercontent.com/example-icon-large",
+  "version": "Varies with device",
+  "score": 4.18734,
+  "ratings": 19873210,
+  "reviews": 512340,
+  "histogram": [
+    1803210,
+    402110,
+    903221,
+    2004433,
+    14760236
+  ],
+  "installs": "5,000,000,000+",
+  "minInstalls": 5000000000,
+  "realInstalls": 5734120998,
+  "size": null,
+  "updated": 1793145600,
+  "recentChanges": "Bug fixes and performance improvements.",
+  "genre": "Communication",
+  "free": true,
+  "price": 0,
+  "contentRating": "Everyone"
+}

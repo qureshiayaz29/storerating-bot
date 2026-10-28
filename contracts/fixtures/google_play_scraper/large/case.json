@@ -1,0 +1,6 @@
+{
+  "package": "com.example.chatlarge",
+  "kind": "large",
+  "synthetic": true,
+  "note": "Shaped like google-play-scraper app()/reviews() output. Replace with recorded data via the record-fixtures workflow."
+}
