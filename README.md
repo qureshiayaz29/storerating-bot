@@ -1,12 +1,59 @@
 # StoreRating
 
-[@storeratingbot](https://t.me/storeratingbot) — a free Telegram bot that watches Google Play apps and tells you what changed: rating moves, new releases, top review complaints and sudden 1★ spikes.
+[@storeratingbot](https://t.me/storeratingbot) is a free Telegram bot that watches Google Play apps and tells you what changed: rating moves, new releases, what users complain about, and sudden 1★ spikes.
 
-- Watch up to 10 apps
-- Daily update at your chosen time, one image card per app
-- Instant alerts for releases, rating drops and review spikes
-- Monthly and quarterly reports
+Add your app and a few competitors, and get one image card per app every morning.
 
-**Privacy:** we store your chat ID, timezone and watchlist. Nothing else. `/delete` removes it all.
+![Daily card](docs/card_daily.png)
 
-See [PLAN.md](PLAN.md) for the build plan.
+## What it does
+
+- **Watch up to 10 apps** — send `/add` with a Play Store link or package name.
+- **Daily update** at 11 AM in your timezone, one card per app, only when something changed.
+- **Instant alerts** for new releases, rating drops, 1★ spikes and apps removed from the store.
+- **Review themes** — top complaints and praise, summarised by Claude.
+- **Monthly and quarterly reports** with longer trends.
+- **Pause** everything or a single app anytime from `/apps`.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/add <link or package>` | Watch a new app |
+| `/apps` | View, pause, resume or remove your apps |
+| `/pause`, `/resume` | Pause or resume all notifications |
+| `/settings` | Digest time and timezone |
+| `/delete` | Delete all your data |
+
+## How it works
+
+| Part | Runs on |
+|---|---|
+| Bot webhook, admin dashboard, Stats API | Vercel (`web/`) |
+| Daily job: fetch apps, Claude summaries, card rendering, sending | GitHub Actions (`job/`) |
+| Database | Supabase Postgres, Row Level Security on every table |
+| Review summaries | Claude Haiku 5.5, Batch API |
+
+Work is done once per app and shared by every user watching it, so cost grows with the number of apps, not users. Store access sits behind a swappable Store Source contract (`contracts/`), so the scraper can be replaced without touching the rest of the code.
+
+The full design, build steps and acceptance checks are in [PLAN.md](PLAN.md).
+
+## Privacy
+
+We store your Telegram chat ID, timezone, settings and watchlist. Nothing else: no names, no usernames, no phone numbers. `/delete` removes all of it.
+
+Review text is processed to build summaries and then discarded. Reviewer names are never stored.
+
+## Status
+
+In development. See [PLAN.md](PLAN.md) for progress.
+
+## Security
+
+Found a vulnerability? See [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE) © 2026 Ayaz Qureshi
+
+StoreRating is not affiliated with or endorsed by Google. Google Play is a trademark of Google LLC.
