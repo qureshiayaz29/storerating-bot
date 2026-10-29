@@ -46,7 +46,16 @@ Review text is processed to build summaries and then discarded. Reviewer names a
 
 ## Status
 
-In development. See [PLAN.md](PLAN.md) for progress.
+Code-complete and tested; launching once secrets and accounts are configured. See the Status section of [PLAN.md](PLAN.md).
+
+## Running locally
+
+```bash
+pip install -r job/requirements.txt && python -m playwright install chromium
+TEST_DATABASE_URL=postgresql://postgres@localhost/postgres python -m pytest   # Python, against a throwaway database
+cd web && npm ci && npm test && npm run build                                # Web
+STORE_SOURCE=stub DATABASE_URL=... python -m job.daily                      # dry run: no BOT_TOKEN means messages are printed
+```
 
 ## Security
 

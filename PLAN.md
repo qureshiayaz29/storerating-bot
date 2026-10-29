@@ -95,7 +95,7 @@ Rejected approaches:
 | Database | Supabase free (Postgres) | SQL |
 | Summaries | Claude Haiku 5.5, Batch API for scheduled work | — |
 | Card render | Playwright (HTML/CSS + inline SVG chart) in Daily Job | Python |
-| Dashboard | Vercel, `web/src/pages/admin/`, Telegram Login | Astro + Chart.js |
+| Dashboard | Vercel, `web/src/pages/admin/`, Telegram Login, server-rendered | Astro + inline SVG |
 | Stats API | Vercel, `web/src/pages/admin/api/`, Admin Session required | TypeScript |
 | Database access from Vercel | Supabase transaction pooler connection string | — |
 
@@ -107,7 +107,8 @@ contracts/
   fixtures/                # raw responses + expected JSON per adapter
 job/sources/
   base.py                  # StoreSource protocol, Listing, Review dataclasses, SourceError
-  google_play_scraper.py   # GooglePlayScraperAdapter
+  google_play.py           # GooglePlayScraperAdapter
+  stub.py                  # StubAdapter: serves Contract Fixtures (tests, dry runs)
   registry.py              # STORE_SOURCE / STORE_SOURCE_FALLBACK → adapter
 web/src/sources/
   lookup.ts                # Lookup Adapter
@@ -119,12 +120,33 @@ Rules:
 - Database rows store the `store` value and the adapter name, so data from different adapters can be told apart.
 
 Data flow per day:
-1. Daily Job does a Fetch for every App with at least one Watcher.
-2. Daily Job writes a Snapshot and detects Alert Events by diffing against the previous Snapshot.
-3. Daily Job filters new reviews (star split, junk removal, rank by thumbs-up and recency) and submits one Batch API request per App.
-4. Daily Job renders one Card per changed App.
-5. Daily Job sends the Card to the first Watcher, stores the returned Telegram `file_id`, and resends by `file_id` to every other Watcher.
-6. Daily Job writes a `job_runs` row and sends the Admin an alert on failure.
+1. 05:00 IST, `job.daily`: health check, then a Fetch for every App with at least one Watcher, most watched first.
+2. It writes a Snapshot and records Alert Events by diffing recent Snapshots (`alerts`, deduplicated).
+3. It filters new reviews and submits one Batch API request for all Apps within the Daily Budget; Apps still waiting at the deadline fall back to standard calls.
+4. It renders one Card per changed App, uploads it once to the Admin chat for a Telegram `file_id`, deletes that message and stores `file_id` + caption in `cards`.
+5. It sends Alerts to unpaused Watchers, then runs budget alerts, Daily Stats, platform usage and cleanup. On the 1st it also builds the Monthly (and Quarterly) Report Cards; on Mondays it sends the weekly Admin report.
+6. Every 30 minutes, `job.deliver` sends each User the newest daily, monthly and quarterly Cards once their Digest Time has passed in their timezone. `deliveries` stops duplicates.
+7. Every workflow writes a `job_runs` row; the Watchdog alerts the Admin if the daily job has not succeeded for 26 hours.
+
+Code map:
+
+| Path | Purpose |
+|---|---|
+| `db/001`–`005_*.sql` | Schema, RLS Lockdown and App Role, alerts, deliveries, card captions |
+| `job/daily.py` | Daily Job entry point (`python -m job.daily`) |
+| `job/deliver.py` | Digest-time delivery (`python -m job.deliver`) |
+| `job/on_demand.py` | On-demand Run (`python -m job.on_demand`) |
+| `job/reports.py` | Monthly and Quarterly Reports (`python -m job.reports`, also called by the daily job) |
+| `job/fetch.py`, `alerts.py`, `summaries.py`, `budget.py`, `send.py` | Fetch, Alert Events, Summaries, Budget Guardrails, sending and pacing |
+| `job/card/render.py` | Card HTML, chart, caption, Playwright renderer |
+| `job/stats.py`, `platform_usage.py`, `cleanup.py`, `admin_report.py`, `health.py` | Daily Stats, Platform Limits, retention, weekly Admin report, Store Source health check |
+| `job/bot_setup.py` | Webhook, command menus and descriptions (Bot setup workflow) |
+| `web/src/pages/api/telegram.ts`, `web/src/bot/` | Webhook Function and bot handlers |
+| `web/src/pages/api/cron/watchdog.ts` | Watchdog (Vercel cron) |
+| `web/src/pages/admin/`, `web/src/admin/`, `web/src/lib/admin-gate.ts` | Dashboard, Stats API, Admin gate |
+| `ci/` | Scraper import guard, RLS check |
+
+Workflows: `ci.yml` (tests on every push), `daily.yml` (05:00 IST), `deliver.yml` (every 30 min), `on-demand.yml` (repository_dispatch), `keepalive.yml` (1st of the month), `bot-setup.yml` and `record-fixtures.yml` (manual).
 
 ## User flow
 
@@ -164,23 +186,25 @@ Managing Apps is available anytime from `/apps`: pause or resume one App, remove
 - `users` — `chat_id` (PK), `language_code`, `timezone`, `digest_time`, `paused`, `blocked`, `created_at`, `last_active_at`
 - `watchlist` — `chat_id`, `package`, `paused`, `added_at` (PK `chat_id`, `package`)
 - `apps` — `store` (default `google_play`), `package` (PK), `name`, `developer`, `icon_url`, `first_seen_at`, `removed`
-- `app_snapshots` — `package`, `date`, `source_adapter`, `version`, `rating`, `review_count`, `installs_tier`, `size`, `one_star_share` (PK `package`, `date`)
+- `app_snapshots` — `package`, `date`, `source_adapter`, `version`, `rating`, `review_count`, `installs_tier`, `size`, `one_star_share`, `updated_at`, `release_notes`, `new_reviews`, `new_one_star_share` (PK `package`, `date`)
 - `app_cursor` — `package` (PK), `last_review_id`, `last_review_at`
-- `summaries` — `package`, `period` (`daily` | `monthly` | `quarterly`), `period_start`, `complaints` (JSON), `praise` (JSON), `verdict`
-- `cards` — `package`, `period`, `period_start`, `telegram_file_id`
+- `summaries` — `package`, `period` (`daily` | `monthly` | `quarterly`), `period_start`, `complaints` (JSON, report themes carry `status`: `persisting` | `fixed` | `new`), `praise` (JSON), `verdict`, `created_at`
+- `cards` — `package`, `period`, `period_start`, `telegram_file_id`, `caption`, `created_at`
+- `alerts` — `id`, `package`, `type` (`new_version` | `rating_drop` | `one_star_spike` | `app_removed`), `dedupe_key`, `detail` (JSON), `detected_at`, `sent_at` (unique `package`, `type`, `dedupe_key`)
+- `deliveries` — `id`, `chat_id`, `package`, `kind` (`daily` | `monthly` | `quarterly` | `alert`), `ref`, `status` (`sent` | `failed` | `blocked`), `sent_at` (unique `chat_id`, `package`, `kind`, `ref`)
 - `on_demand` — `chat_id`, `package`, `requested_at`, `status` (`pending` | `done` | `failed`)
-- `spend` — `id`, `ts`, `source` (`daily` | `on_demand` | `report`), `package`, `model`, `batch`, `tokens_in`, `tokens_out`, `cost_usd`
-- `config` — `key` (PK), `value`, `updated_at`. Holds `monthly_budget_usd`.
+- `spend` — `id`, `ts`, `source` (`daily` | `on_demand` | `report` | `alert`), `package`, `model`, `batch`, `tokens_in`, `tokens_out`, `cost_usd`
+- `config` — `key` (PK), `value`, `updated_at`. Holds `monthly_budget_usd`, quotas, Platform Limits and alert-sent flags.
 - `daily_stats` — `date` (PK), `users_total`, `users_new`, `dau_active`, `dau_reached`, `blocked_total`, `blocked_new`, `apps_watched`, `updates_sent`, `alerts_sent`, `claude_cost_usd`, `d1_retention`, `d7_retention`, `d30_retention`
 - `platform_usage` — `date`, `provider` (`vercel` | `github` | `supabase`), `resource`, `used`, `limit`, `unit`, `source` (`api` | `self_metered`) (PK `date`, `provider`, `resource`)
 - `fn_metrics` — `date`, `route`, `invocations`, `duration_ms_total`, `response_bytes_total` (PK `date`, `route`)
 - `events` — `id`, `chat_id`, `event`, `props` (JSON), `ts`
-- `job_runs` — `id`, `started_at`, `finished_at`, `apps_fetched`, `apps_failed`, `reviews_processed`, `claude_calls`, `claude_tokens_in`, `claude_tokens_out`, `cards_rendered`, `sent`, `failed`, `rate_limited`
+- `job_runs` — `id`, `workflow` (`daily` | `deliver` | `on_demand` | `reports`), `success`, `started_at`, `finished_at`, `apps_fetched`, `apps_failed`, `reviews_processed`, `claude_calls`, `claude_tokens_in`, `claude_tokens_out`, `cards_rendered`, `sent`, `failed`, `rate_limited`
 - `errors` — `id`, `source` (`store_source` | `claude` | `render` | `telegram` | `web`), `package`, `message`, `stack`, `ts`
 
 Security: RLS Lockdown on every table, including tables added by later migrations. All access goes through the App Role over a direct Postgres connection; nothing uses the Supabase REST API or client keys.
 
-Retention: `events` and `errors` 90 days, then roll into daily aggregates. `app_snapshots` daily for 90 days, then weekly averages. `summaries` kept.
+Retention: `events` and `errors` 90 days, then roll into daily aggregates. `deliveries` and `on_demand` 30 days. `app_snapshots` daily for 90 days, then weekly averages. `summaries` kept.
 
 ## Features
 
@@ -297,6 +321,17 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 | Jobs | Duration, Apps fetched, sends, 429s per run | `job_runs` |
 | Errors | Latest errors by source with stack | `errors` |
 | Budget | Month-to-date spend, projection, spend per App and per source, flagged Users | `spend`, `config`, `events` |
+
+
+## Status (29 Oct 2026)
+
+Built, tested in CI against real Postgres, and deployed: Phases 1–13 except the steps below. The bot is code-complete.
+
+Waiting on the Admin (secrets and accounts):
+- Phase 0: bot profile picture, `/setdomain`, Anthropic key and $30 limit, GitHub secrets, Vercel environment variables, `storerating_app` password.
+- Step 149: add `storerating.ayazqureshi.com` to the Vercel project (the connector cannot write project settings).
+- Run the **Bot setup** workflow, then **Record fixtures** to replace the synthetic Contract Fixtures with real recordings.
+- Phase 14: launch.
 
 ## Steps
 
@@ -454,7 +489,7 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 ### Phase 11 — Schedule
 123. Write `.github/workflows/daily.yml` with a cron for Fetch and Batch submission at 05:00 IST.
 124. Write the send workflow with a cron every 30 minutes for Digest Times.
-125. Write the Monthly and Quarterly Report workflows.
+125. Build the Monthly and Quarterly Reports in `job/reports.py`. Run them from the Daily Job on the 1st.
 126. Write a `job_runs` row at the end of every workflow.
 127. Send an Admin alert when a workflow fails.
 
@@ -475,7 +510,7 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 ### Phase 13 — Admin and Dashboard
 140. Implement the `/stats` handler for the Admin only.
 141. Write the stats builder in the Daily Job. Write one `daily_stats` row for yesterday.
-142. Add the Stats API routes `/admin/api/overview`, `/retention`, `/funnel`, `/apps`, `/jobs`, `/errors`, `/budget` to the Webhook Function.
+142. Add the Stats API route `/admin/api/<section>` for `overview`, `retention`, `funnel`, `apps`, `jobs`, `errors`, `budget`, `limits`.
 143. Build `/admin/login` with the Telegram Login Widget.
 144. Verify the Telegram Login hash on the server. Reject logins older than 1 day.
 145. Issue the Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`.
