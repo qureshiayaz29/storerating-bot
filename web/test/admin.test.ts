@@ -2,7 +2,8 @@ import { createHash, createHmac } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { adminGate } from '../src/lib/admin-gate';
 import { GET as auth } from '../src/pages/admin/auth';
-import { readSession, SESSION_COOKIE, signSession, verifyTelegramLogin } from '../src/lib/session';
+import { GET as magic } from '../src/pages/admin/magic';
+import { readSession, SESSION_COOKIE, signLoginToken, signSession, verifyLoginToken, verifyTelegramLogin } from '../src/lib/session';
 
 const TOKEN = '123456:TEST-token';
 const ADMIN = 999;
@@ -114,5 +115,36 @@ describe('Admin gate', () => {
   it('is closed when not configured', async () => {
     delete process.env.SESSION_SECRET;
     expect(((await adminGate(ctx('/admin') as never, ok)) as Response).status).toBe(503);
+  });
+});
+
+describe('Login Link', () => {
+  it('verifies only fresh Admin tokens signed with the secret', () => {
+    const now = 1_800_000_000_000;
+    const t = signLoginToken(ADMIN, 'session-secret', now);
+    expect(verifyLoginToken(t, 'session-secret', ADMIN, now + 4 * 60_000)).toBe(true);
+    expect(verifyLoginToken(t, 'session-secret', ADMIN, now + 6 * 60_000)).toBe(false); // expired
+    expect(verifyLoginToken(t, 'other-secret', ADMIN, now)).toBe(false);
+    expect(verifyLoginToken(signLoginToken(5, 'session-secret', now), 'session-secret', ADMIN, now)).toBe(false);
+    expect(verifyLoginToken(null, 'session-secret', ADMIN, now)).toBe(false);
+  });
+  it('is not interchangeable with a session cookie', () => {
+    const now = Date.now();
+    expect(readSession(signLoginToken(ADMIN, 'session-secret', now), 'session-secret', ADMIN, now)).toBe(false);
+    expect(verifyLoginToken(signSession(ADMIN, 'session-secret', now), 'session-secret', ADMIN, now)).toBe(false);
+  });
+  it('/admin/magic sets the session for a valid link and refuses others', async () => {
+    configure();
+    const good = await magic({ url: new URL(`https://x/admin/magic?t=${signLoginToken(ADMIN, 'session-secret')}`) } as never);
+    expect(good.status).toBe(302);
+    expect(good.headers.get('location')).toBe('/admin');
+    expect(good.headers.get('set-cookie')).toMatch(/^sr_admin=999\./);
+    const bad = await magic({ url: new URL('https://x/admin/magic?t=999.1.abc') } as never);
+    expect(bad.status).toBe(403);
+    expect(bad.headers.get('set-cookie')).toBeNull();
+  });
+  it('the gate leaves /admin/magic open', async () => {
+    configure();
+    expect(((await adminGate(ctx('/admin/magic') as never, ok)) as Response).status).toBe(200);
   });
 });

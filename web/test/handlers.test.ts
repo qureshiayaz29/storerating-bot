@@ -366,3 +366,28 @@ describe('/budget platform limits', () => {
     expect(text).toContain('🟢 supabase db size: 12.40 of 500 MB (2%)');
   });
 });
+
+describe('/login', () => {
+  it('sends the Admin a Login Link', async () => {
+    deps.loginLink = () => 'https://x/admin/magic?t=abc&x=1';
+    await send(msg('/login', ADMIN));
+    expect(tg.last().text).toContain('href="https://x/admin/magic?t=abc&amp;x=1"');
+  });
+  it('/start login from the login page gives the Admin a link', async () => {
+    deps.loginLink = () => 'https://x/admin/magic?t=abc';
+    await send(msg('/start login', ADMIN));
+    expect(tg.last().text).toContain('/admin/magic?t=abc');
+  });
+  it('anyone else gets no link', async () => {
+    deps.loginLink = () => 'https://x/admin/magic?t=abc';
+    await send(msg('/login', OTHER));
+    expect(tg.last().text).toBe(TEXT.help);
+    await send(msg('/start login', OTHER));
+    expect(tg.last().text).toBe(TEXT.welcome);
+    expect(tg.sent.some((s) => s.text?.includes('magic'))).toBe(false);
+  });
+  it('explains when SESSION_SECRET is missing', async () => {
+    await send(msg('/login', ADMIN));
+    expect(tg.last().text).toContain('SESSION_SECRET');
+  });
+});

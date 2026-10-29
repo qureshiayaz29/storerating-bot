@@ -9,7 +9,7 @@ interface GateContext {
   redirect(path: string, status?: 301 | 302 | 303 | 307 | 308 | 300 | 304): Response;
 }
 
-const OPEN_ADMIN = new Set(['/admin/login', '/admin/auth', '/admin/logout']);
+const OPEN_ADMIN = new Set(['/admin/login', '/admin/auth', '/admin/logout', '/admin/magic']);
 
 export async function adminGate(context: GateContext, next: () => Promise<Response>): Promise<Response> {
   const path = new URL(context.request.url).pathname.replace(/\/$/, '') || '/';

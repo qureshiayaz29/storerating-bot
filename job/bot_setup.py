@@ -21,6 +21,7 @@ PUBLIC_COMMANDS = [
     ("delete", "Delete all your data"),
 ]
 ADMIN_COMMANDS = PUBLIC_COMMANDS + [
+    ("login", "Admin: dashboard login link"),
     ("stats", "Admin: users and usage"),
     ("budget", "Admin: Claude and platform budget"),
     ("setbudget", "Admin: set monthly Claude budget"),

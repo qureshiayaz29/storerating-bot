@@ -16,15 +16,15 @@ const bot = process.env.BOT_USERNAME || 'storeratingbot';
       body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px; text-align: center; }
       p { color: var(--muted); }
+      a.cta { display: inline-block; margin-top: 8px; padding: 12px 20px; border-radius: 10px; background: #34d399; color: #06221a; font-weight: 600; text-decoration: none; }
     </style>
   </head>
   <body>
     <main>
       <img src="/logo.svg" alt="" width="88" height="88" style="border-radius: 20px" />
       <h1>StoreRating Admin</h1>
-      <p>Log in with the Admin Telegram account.</p>
-      <script is:inline async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login={bot} data-size="large"
-        data-auth-url="/admin/auth" data-request-access="write"></script>
+      <p>Tap the button, then tap the link the bot sends you.<br />Or send <code>/login</code> to @{bot} yourself.</p>
+      <a class="cta" href={`https://t.me/${bot}?start=login`}>Log in with Telegram</a>
     </main>
   </body>
 </html>

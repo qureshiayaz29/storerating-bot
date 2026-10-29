@@ -13,12 +13,14 @@ export interface Deps {
   now?: () => Date;
   /** Starts an On-demand Run (GitHub repository_dispatch). Absent in tests that do not need it. */
   dispatch?: () => Promise<void>;
+  /** Builds a 5-minute dashboard Login Link. Absent when SESSION_SECRET is not set. */
+  loginLink?: () => string;
 }
 
 const DEFAULTS = { watchlistMax: 10, actionLimitPerHour: 20, newAppQuota: 5, onDemandBudget: 200 };
 const DEBOUNCE_MS = 60_000;
 const CARD_FRESH_MS = 30 * 60 * 60 * 1000;
-const ADMIN_COMMANDS = new Set(['/stats', '/budget', '/setbudget']);
+const ADMIN_COMMANDS = new Set(['/stats', '/budget', '/setbudget', '/login']);
 
 export const TEXT = {
   welcome:
@@ -78,6 +80,9 @@ async function handleMessage(msg: TgMessage, deps: Deps): Promise<void> {
   const [rawCmd, ...rest] = text.split(/\s+/);
   const cmd = rawCmd.toLowerCase().replace(/@\w+$/, ''); // "/add@storeratingbot" → "/add"
   const arg = rest.join(' ');
+
+  // The login page links to t.me/<bot>?start=login: the Admin gets a Login Link, anyone else the normal welcome.
+  if (cmd === '/start' && arg === 'login' && isAdmin(msg, deps.adminChatId)) return handleAdmin('/login', '', chatId, deps);
 
   if (ADMIN_COMMANDS.has(cmd)) {
     if (!isAdmin(msg, deps.adminChatId)) {
@@ -400,6 +405,10 @@ async function handleAdmin(cmd: string, arg: string, chatId: number, deps: Deps)
   await repo.logEvent(chatId, 'admin_command', { command: cmd });
   const reminder = 'To spend more: top up, raise the Console limit, then /setbudget &lt;amount&gt;';
 
+  if (cmd === '/login') {
+    if (!deps.loginLink) return tg.sendMessage(chatId, 'Dashboard login is not configured: set SESSION_SECRET in Vercel.');
+    return tg.sendMessage(chatId, `🔐 <a href="${escapeHtml(deps.loginLink())}">Open the admin dashboard</a>\nThe link works for 5 minutes. Don't forward it.`);
+  }
   if (cmd === '/stats') {
     const s = await repo.stats(now);
     return tg.sendMessage(

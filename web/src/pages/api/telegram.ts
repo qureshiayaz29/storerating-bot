@@ -9,6 +9,7 @@ import type { TgUpdate } from '../../bot/types';
 import { readEnv, safeEqual } from '../../lib/env';
 import { TelegramApi } from '../../lib/telegram';
 import { githubDispatcher } from '../../lib/dispatch';
+import { signLoginToken } from '../../lib/session';
 import { NodeScraperLookup } from '../../sources/lookup';
 
 export const POST: APIRoute = async ({ request }) => {
@@ -35,6 +36,9 @@ export const POST: APIRoute = async ({ request }) => {
       tg: new TelegramApi(env.botToken),
       lookup: new NodeScraperLookup(),
       adminChatId: env.adminChatId,
+      loginLink: process.env.SESSION_SECRET
+        ? () => `${process.env.PUBLIC_URL || new URL(request.url).origin}/admin/magic?t=${signLoginToken(env.adminChatId, process.env.SESSION_SECRET!)}`
+        : undefined,
       dispatch: process.env.GITHUB_DISPATCH_TOKEN
         ? githubDispatcher(process.env.GITHUB_DISPATCH_TOKEN, process.env.GITHUB_REPO || 'qureshiayaz29/storerating-bot')
         : undefined,

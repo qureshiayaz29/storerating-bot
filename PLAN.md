@@ -305,7 +305,7 @@ Bars turn amber at 70% and red at 90%, the same thresholds as the alerts.
 - Dashboard: Overview, Retention, Funnel, Apps, Jobs, Errors, Budget, Limits.
 
 **Dashboard data**
-- Login: Telegram Login Widget on `/admin/login`. The server verifies the login hash with HMAC-SHA-256 keyed by SHA-256 of `BOT_TOKEN`, rejects logins older than 1 day, and issues an Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`. Same identity the Bot already trusts; no passwords, no extra auth service.
+- Login: a Login Link from the Bot. `/admin/login` links to `t.me/storeratingbot?start=login`; the Bot answers the Admin (and only the Admin) with a link to `/admin/magic?t=<token>`, signed with `SESSION_SECRET` and valid 5 minutes, which issues the Admin Session. `/login` in the Bot does the same. Chosen over the Telegram Login Widget, whose confirmation message did not arrive in practice. The widget callback `/admin/auth` stays as a fallback: The server verifies the login hash with HMAC-SHA-256 keyed by SHA-256 of `BOT_TOKEN`, rejects logins older than 1 day, and issues an Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`. Same identity the Bot already trusts; no passwords, no extra auth service.
 - Every `/admin` page and every Stats API route checks the Admin Session. Missing or invalid → redirect to `/admin/login` (pages) or HTTP 401 (API).
 - `/admin` pages send `X-Robots-Tag: noindex`.
 - History comes from Daily Stats. Today's numbers come from live queries on `events`, `users`, `watchlist`, `spend`, `job_runs` and `errors`.
@@ -511,7 +511,7 @@ Waiting on the Admin (secrets and accounts):
 140. Implement the `/stats` handler for the Admin only.
 141. Write the stats builder in the Daily Job. Write one `daily_stats` row for yesterday.
 142. Add the Stats API route `/admin/api/<section>` for `overview`, `retention`, `funnel`, `apps`, `jobs`, `errors`, `budget`, `limits`.
-143. Build `/admin/login` with the Telegram Login Widget.
+143. Build `/admin/login` with the Bot Login Link (`/login`, `/admin/magic`).
 144. Verify the Telegram Login hash on the server. Reject logins older than 1 day.
 145. Issue the Admin Session only when the Telegram user ID equals `ADMIN_CHAT_ID`.
 146. Check the Admin Session in every `/admin` page and every Stats API route. Redirect pages to `/admin/login`. Return HTTP 401 from the API.

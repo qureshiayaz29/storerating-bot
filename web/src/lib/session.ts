@@ -56,6 +56,22 @@ function equalHex(a: string, b: string): boolean {
   return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
 }
 
+export const LOGIN_LINK_MINUTES = 5;
+
+/** Login Link token: "<id>.<expires>.<hmac>", HMAC over "login.<id>.<expires>" so it can never pass as a session. */
+export function signLoginToken(id: number, secret: string, nowMs = Date.now()): string {
+  const exp = nowMs + LOGIN_LINK_MINUTES * 60_000;
+  return `${id}.${exp}.${createHmac('sha256', secret).update(`login.${id}.${exp}`).digest('hex')}`;
+}
+
+export function verifyLoginToken(token: string | null, secret: string, adminId: number, nowMs = Date.now()): boolean {
+  if (!token) return false;
+  const [id, exp, sig] = token.split('.');
+  if (!id || !exp || !sig) return false;
+  const expected = createHmac('sha256', secret).update(`login.${id}.${exp}`).digest('hex');
+  return equalHex(expected, sig) && Number(id) === adminId && Number(exp) > nowMs;
+}
+
 export function sessionCookie(value: string): string {
   return `${SESSION_COOKIE}=${value}; Path=/admin; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_HOURS * 3600}`;
 }
