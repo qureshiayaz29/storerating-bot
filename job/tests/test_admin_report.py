@@ -71,10 +71,10 @@ def test_send_without_admin_is_a_no_op(conn, monkeypatch):
 
 
 @pytest.mark.skipif(not _chromium_available(), reason="Playwright Chromium not installed")
-def test_renders(conn):
+def test_renders(conn, tmp_path):
     seed_stats(conn)
     from job.card.render import Renderer
     with Renderer() as r:
         png = r.render(card_html(collect(conn, MONDAY)))
     assert png[:4] == b"\x89PNG"
-    open("/tmp/claude-0/-home-claude/c2577740-00c2-5ca4-b969-fd7c2416cd07/scratchpad/weekly.png", "wb").write(png)
+    (tmp_path / "weekly.png").write_bytes(png)
