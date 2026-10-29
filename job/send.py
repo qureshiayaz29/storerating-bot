@@ -92,7 +92,7 @@ class Pacer:
             self._record(it, "failed")
             return "failed"
         self._record(it, "sent")
-        event = "update_sent" if it.kind != "alert" else "alert_sent"
+        event = "alert_sent" if it.kind == "alert" else "update_sent"
         self.conn.execute("insert into events (chat_id, event, props) values (%s, %s, %s)",
                           (it.chat_id, event, Jsonb({"package": it.package})))
         return "sent"
@@ -133,20 +133,22 @@ def upload_card(conn, tg: Telegram, package: str, period: str, period_start, png
 # --- Daily Updates at each User's Digest Time ----------------------------------------
 
 def due_updates(conn, now: datetime | None = None) -> list[Outgoing]:
+    """Daily, monthly and quarterly Cards whose recipients' Digest Time has arrived."""
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     rows = conn.execute(
         """select u.chat_id, u.timezone, to_char(u.digest_time, 'HH24:MI') as digest_time,
-                  c.package, c.period_start::text as ref, c.telegram_file_id, c.caption
+                  c.package, c.period, c.period_start::text as ref, c.telegram_file_id, c.caption
            from users u
            join watchlist w on w.chat_id = u.chat_id and not w.paused
            join lateral (
-             select * from cards c where c.package = w.package and c.period = 'daily'
-               and c.telegram_file_id is not null and c.created_at >= %(fresh)s
-             order by c.period_start desc limit 1) c on true
+             select distinct on (c.period) * from cards c
+             where c.package = w.package and c.telegram_file_id is not null and c.created_at >= %(fresh)s
+             order by c.period, c.period_start desc) c on true
            where not u.paused and not u.blocked
              and not exists (select 1 from deliveries d where d.chat_id = u.chat_id and d.package = c.package
-                             and d.kind = 'daily' and d.ref = c.period_start::text)
-           order by u.chat_id, w.added_at""",
+                             and d.kind = c.period and d.ref = c.period_start::text)
+           order by u.chat_id, w.added_at,
+                    case c.period when 'daily' then 0 when 'monthly' then 1 else 2 end""",
         {"fresh": now - timedelta(hours=CARD_FRESH_HOURS)},
     ).fetchall()
     out = []
@@ -156,7 +158,7 @@ def due_updates(conn, now: datetime | None = None) -> list[Outgoing]:
         except Exception:  # noqa: BLE001 — bad timezone: fall back to the default
             local = now.astimezone(ZoneInfo("Asia/Kolkata"))
         if local.strftime("%H:%M") >= r["digest_time"]:
-            out.append(Outgoing(r["chat_id"], r["package"], "daily", r["ref"], r["caption"] or "",
+            out.append(Outgoing(r["chat_id"], r["package"], r["period"], r["ref"], r["caption"] or "",
                                 file_id=r["telegram_file_id"]))
     return silence_after_first(out)
 

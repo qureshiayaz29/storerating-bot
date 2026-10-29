@@ -142,7 +142,10 @@ def parse(text: str) -> Summary:
                 continue
             share = it.get("share")
             share = max(0, min(100, round(float(share)))) if isinstance(share, (int, float)) else None
-            out.append({"theme": theme[:60], "share": share, "example": str(it.get("example", "")).strip()[:120]})
+            item = {"theme": theme[:60], "share": share, "example": str(it.get("example", "")).strip()[:120]}
+            if it.get("status") in ("persisting", "fixed", "new"):  # monthly and quarterly reports
+                item["status"] = it["status"]
+            out.append(item)
         return out
 
     return Summary(items("complaints"), items("praise"), str(data.get("verdict", "")).strip()[:120])

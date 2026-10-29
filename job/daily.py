@@ -12,7 +12,7 @@ import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from . import alerts, budget, cleanup, fetch, health, platform_usage, stats, summaries
+from . import admin_report, alerts, budget, cleanup, fetch, health, platform_usage, reports, stats, summaries
 from .card.render import Renderer, caption, card_html, daily_card
 from .db import JobRun, connect, job_run, log_exception
 from .send import Pacer, mark_alerts_sent, pending_alerts, upload_card
@@ -104,6 +104,14 @@ def main() -> None:
         platform_usage.run(conn, today, tg)
         print(f"Cleanup: {cleanup.run(conn, today)}")
         print(f"{today}: {len(outcomes)} apps, {len(new_alerts)} alerts, {cards} cards, alert messages {alert_stats}")
+
+    # On the 1st: monthly (and quarterly) report cards, delivered by job.deliver at digest time.
+    if reports.periods_due(today):
+        with job_run(conn, "reports") as rrun:
+            print(f"Reports: {reports.run_reports(conn, tg, client, rrun, today)}")
+    # On Mondays: the weekly Admin report.
+    if admin_report.is_due(today):
+        admin_report.send(conn, tg, today)
 
 
 if __name__ == "__main__":
