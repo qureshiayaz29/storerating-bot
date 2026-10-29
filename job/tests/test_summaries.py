@@ -191,3 +191,9 @@ def test_unparseable_reply_is_logged(conn, monkeypatch):
                         sleep=lambda s: None)
     assert res.failed == ["a.b"] and res.done == {}
     assert conn.execute("select count(*) as n from spend").fetchone()["n"] == 1  # still paid for
+
+
+def test_params_disable_thinking_and_leave_headroom():
+    from job.summaries import MAX_TOKENS, _params
+    p = _params("x")
+    assert p["thinking"] == {"type": "disabled"} and p["max_tokens"] == MAX_TOKENS >= 1000

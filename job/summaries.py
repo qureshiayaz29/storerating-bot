@@ -24,7 +24,7 @@ MODEL = budget.MODEL
 MIN_NEW_REVIEWS = 5
 MAX_PER_SIDE = 150
 MAX_REVIEW_CHARS = 500
-MAX_TOKENS = 600
+MAX_TOKENS = 1200  # JSON reply is ~300 tokens; headroom so it is never cut off
 POLL_SECONDS = 60
 
 SYSTEM = (
@@ -165,7 +165,9 @@ def store(conn, package: str, today: date, s: Summary, period: str = "daily") ->
 # --- Claude calls ----------------------------------------------------------------
 
 def _params(prompt: str) -> dict:
-    return {"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM,
+    # Haiku 5.5 thinks adaptively by default and thinking counts against max_tokens.
+    # This is plain extraction, so thinking is off: cheaper, and the JSON is never starved.
+    return {"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM, "thinking": {"type": "disabled"},
             "messages": [{"role": "user", "content": prompt}]}
 
 
@@ -182,7 +184,8 @@ def _finish(conn, run: JobRun, result: SummaryRun, today: date, package: str, me
     try:
         s = parse(_text(message))
     except (ValueError, json.JSONDecodeError) as e:
-        log_error(conn, "claude", package, f"unparseable summary: {e}")
+        stop = getattr(message, "stop_reason", None)
+        log_error(conn, "claude", package, f"unparseable summary ({stop}): {e}; reply starts {_text(message)[:200]!r}")
         result.failed.append(package)
         return
     store(conn, package, today, s)
