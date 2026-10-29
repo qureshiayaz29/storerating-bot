@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="StoreRating">
+  <defs>
+    <radialGradient id="bg" cx="80%" cy="10%" r="110%"><stop offset="0" stop-color="#1f2a3d"/><stop offset=".65" stop-color="#0e1219"/></radialGradient>
+    <linearGradient id="g" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#6ee7b7"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g transform="translate(256 262) scale(.78) translate(-279 -244)">
+    <g fill="#2c3a50">
+      <rect x="112" y="330" width="58" height="82" rx="14"/>
+      <rect x="194" y="290" width="58" height="122" rx="14"/>
+      <rect x="276" y="266" width="58" height="146" rx="14"/>
+    </g>
+    <rect x="358" y="214" width="58" height="198" rx="14" fill="url(#g)"/>
+    <path transform="translate(387 138) scale(.34) translate(-256 -243)" d="M256 92 L303 196 L416 207 L331 283 L356 394 L256 336 L156 394 L181 283 L96 207 L209 196 Z" fill="#6ee7b7" stroke="#6ee7b7" stroke-width="30" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -44,6 +44,8 @@ const live = ov.live as unknown as Record<string, number>;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>StoreRating Admin</title>
     <style is:global>
       :root { color-scheme: light dark; --bg: #f7f7f5; --card: #fff; --fg: #17181c; --muted: #5d6270; --line: #e4e4e0;
@@ -57,7 +59,7 @@ const live = ov.live as unknown as Record<string, number>;
       nav a, header a { color: var(--muted); text-decoration: none; }
       main { max-width: 1100px; margin: auto; padding: 16px; display: grid; gap: 16px; }
       section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; overflow-x: auto; }
-      h1 { font-size: 20px; margin: 0; } h2 { font-size: 17px; margin: 0 0 12px; }
+      h1 { font-size: 20px; margin: 0; } .brand { display: flex; align-items: center; gap: 10px; } .brand img { border-radius: 8px; } h2 { font-size: 17px; margin: 0 0 12px; }
       .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
       .kpi b { display: block; font-size: 24px; } .kpi span { color: var(--muted); font-size: 13px; }
       table { border-collapse: collapse; width: 100%; font-size: 14px; }
@@ -74,7 +76,7 @@ const live = ov.live as unknown as Record<string, number>;
     </style>
   </head>
   <body>
-    <header><h1>StoreRating Admin</h1><a href="/admin/logout">Log out</a></header>
+    <header><h1 class="brand"><img src="/logo.svg" alt="" width="32" height="32" />StoreRating Admin</h1><a href="/admin/logout">Log out</a></header>
     <nav>{['overview','retention','funnel','apps','jobs','errors','budget','limits'].map((s) => <a href={`#${s}`}>{s}</a>)}</nav>
     <main>
       <section id="overview">

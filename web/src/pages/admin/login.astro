@@ -7,6 +7,8 @@ const bot = process.env.BOT_USERNAME || 'storeratingbot';
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>StoreRating Admin</title>
     <style>
       :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #17181c; --muted: #5d6270; }
@@ -18,6 +20,7 @@ const bot = process.env.BOT_USERNAME || 'storeratingbot';
   </head>
   <body>
     <main>
+      <img src="/logo.svg" alt="" width="88" height="88" style="border-radius: 20px" />
       <h1>StoreRating Admin</h1>
       <p>Log in with the Admin Telegram account.</p>
       <script is:inline async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login={bot} data-size="large"

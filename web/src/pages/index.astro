@@ -6,6 +6,8 @@ export const prerender = true;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>StoreRating</title>
     <meta name="description" content="A free Telegram bot that watches Google Play apps: rating moves, new releases, top complaints and 1★ spikes." />
     <style>
@@ -20,11 +22,13 @@ export const prerender = true;
       a.cta { display: inline-block; margin-top: 8px; padding: 12px 20px; border-radius: 10px; background: var(--accent);
         color: #06221a; font-weight: 600; text-decoration: none; }
       img { width: 100%; border-radius: 12px; margin: 24px 0 8px; }
+      img.logo { width: 72px; border-radius: 16px; margin: 0 0 16px; }
       small { color: var(--muted); }
     </style>
   </head>
   <body>
     <main>
+      <img class="logo" src="/logo.svg" alt="" width="72" height="72" />
       <h1>StoreRating</h1>
       <p>A free Telegram bot that watches Google Play apps and tells you what changed: rating moves, new releases, top complaints and sudden 1★ spikes.</p>
       <a class="cta" href="https://t.me/storeratingbot">Open in Telegram</a>
