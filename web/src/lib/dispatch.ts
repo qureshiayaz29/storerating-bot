@@ -1,5 +1,5 @@
 // Starts an On-demand Run through GitHub's repository_dispatch API.
-// The token is fine-grained: this repository only, Actions read and write.
+// The token is fine-grained: this repository only, Contents read and write to start workflows, Actions read for the watchdog.
 
 export function githubDispatcher(token: string, repo: string, fetchFn: typeof fetch = fetch) {
   return async function dispatch(): Promise<void> {

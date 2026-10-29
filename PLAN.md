@@ -344,7 +344,7 @@ Waiting on the Admin (secrets and accounts):
 6. Create a free Supabase project.
 7. Copy the Supabase connection string. Replace the role with `storerating_app` after Phase 1.
 8. Add the secrets `BOT_TOKEN`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `ADMIN_CHAT_ID` to this repository.
-9. Add the same values as environment variables in the Vercel project `storerating-bot` once it exists (Phase 3): `BOT_TOKEN`, `DATABASE_URL` (Supabase transaction pooler), `ADMIN_CHAT_ID`, `WEBHOOK_SECRET`, `SESSION_SECRET`, `GITHUB_DISPATCH_TOKEN` (fine-grained, this repository only, Actions read and write), `CRON_SECRET`.
+9. Add the same values as environment variables in the Vercel project `storerating-bot` once it exists (Phase 3): `BOT_TOKEN`, `DATABASE_URL` (Supabase transaction pooler), `ADMIN_CHAT_ID`, `WEBHOOK_SECRET`, `SESSION_SECRET`, `GITHUB_DISPATCH_TOKEN` (fine-grained, this repository only, Contents read and write to start workflows, Actions read for the watchdog), `CRON_SECRET`.
 10. Set the Bot domain with `/setdomain` in @BotFather to the Dashboard domain, for Telegram Login.
 
 ### Phase 1 — Database
