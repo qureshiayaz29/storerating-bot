@@ -55,6 +55,13 @@ def make_cards(conn, tg: Telegram, run: JobRun, outcomes, today: date, alert_pkg
     return made
 
 
+def already_ran(conn, today: date) -> bool:
+    """True when a successful Daily Job already ran for today (Asia/Kolkata), so a backup trigger is a no-op."""
+    return conn.execute(
+        """select 1 from job_runs where workflow = 'daily' and success
+           and (started_at at time zone 'Asia/Kolkata')::date = %s limit 1""", (today,)).fetchone() is not None
+
+
 def anthropic_client():
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return None
@@ -70,6 +77,9 @@ def main() -> None:
     conn = connect()
     tg = Telegram()
     today = job_date()
+    if already_ran(conn, today) and os.environ.get("FORCE", "").lower() != "true":
+        print(f"Daily Job already ran for {today}: skipping (run with force to repeat)")
+        return
     deadline = time.monotonic() + 60 * float(os.environ.get("SUMMARY_DEADLINE_MINUTES", "240"))
     active, fallback = registry.active_source(), registry.fallback_source()
 

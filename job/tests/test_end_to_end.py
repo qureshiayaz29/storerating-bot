@@ -41,3 +41,13 @@ def test_daily_then_deliver(conn, db_url, monkeypatch, capsys):
         assert [r["chat_id"] for r in sent] == [1, 2]   # user 3's digest time has not arrived
     deliver.main()
     assert conn.execute("select count(*) as n from deliveries where kind = 'daily'").fetchone()["n"] == len(sent)
+
+
+def test_daily_job_runs_once_per_day(conn):
+    from datetime import date
+    from job.daily import already_ran
+    today = date(2026, 10, 30)
+    assert not already_ran(conn, today)
+    conn.execute("""insert into job_runs (workflow, started_at, finished_at, success)
+                    values ('daily', '2026-10-29 23:35+00', '2026-10-29 23:50+00', true)""")  # 05:05 IST on the 30th
+    assert already_ran(conn, today) and not already_ran(conn, date(2026, 10, 31))

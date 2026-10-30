@@ -3,11 +3,19 @@ name: Daily job
 # 05:00 IST: fetch every watched app, detect alerts, summarise reviews with
 # Claude (Batch API), render and upload cards, send alerts, check the budget.
 # Updates are delivered later by the Deliver workflow at each user's digest time.
+#
+# Started at 05:00 IST by Supabase pg_cron (db/supabase/006_scheduler.sql).
+# The GitHub schedule below is a late backup: a second run the same day skips itself.
 
 on:
   schedule:
-    - cron: "30 23 * * *"   # 23:30 UTC = 05:00 IST
+    - cron: "30 1 * * *"   # 01:30 UTC = 07:00 IST, backup only
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Run again even if today's Daily Job already succeeded"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -25,6 +33,7 @@ jobs:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      FORCE: ${{ inputs.force || false }}
       CLAUDE_ENABLED: ${{ vars.CLAUDE_ENABLED || 'true' }}
       STORE_SOURCE: ${{ vars.STORE_SOURCE || 'google_play_scraper' }}
       STORE_SOURCE_FALLBACK: ${{ vars.STORE_SOURCE_FALLBACK }}

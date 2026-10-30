@@ -1,7 +1,10 @@
 name: Deliver
 
-# Every 30 minutes: send today's cards to users whose digest time has arrived.
+# Every 15 minutes: send today's cards to users whose digest time has arrived.
 # One query when nothing is due.
+#
+# Started by Supabase pg_cron (db/supabase/006_scheduler.sql). GitHub's own
+# schedule below proved unreliable (runs 4–6 hours apart) and stays as a backup.
 
 on:
   schedule:
