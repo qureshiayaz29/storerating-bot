@@ -1,8 +1,9 @@
+import re
 from datetime import date, timedelta
 
 import pytest
 
-from job.card.render import CAPTION_LIMIT, CardData, Renderer, caption, card_html, chart_svg, daily_card
+from job.card.render import CAPTION_LIMIT, CardData, Renderer, card_html, chart_svg, daily_card
 from job.db import Jsonb
 
 TODAY = date(2026, 10, 29)
@@ -36,16 +37,9 @@ def test_delta_states():
     assert "steady" not in card_html(data(rating=None, delta=None))
 
 
-def test_caption_format_and_limit():
-    text = caption(data(), [{"theme": "Notes not syncing", "share": 41}], [{"theme": "Faster search", "share": 22}])
-    assert text.splitlines()[0] == "<b>Notely</b> · 4.1★ ▼0.1 · v5.3.1"
-    assert "😡 Notes not syncing (~41%)" in text and "😍 Faster search (~22%)" in text
-    long = caption(data(verdict="v" * 2000, name="N" * 300), [{"theme": "t" * 500, "share": 1}] * 3, [])
-    assert len(long) <= CAPTION_LIMIT
-
-
 def test_caption_escapes():
-    assert "&lt;b&gt;" in caption(data(name="<b>"), [], [])
+    from job.card.render import daily_caption
+    assert "&lt;b&gt;" in daily_caption(data(name="<b>"), [], [])
 
 
 def test_daily_card_from_database(conn):
@@ -63,7 +57,8 @@ def test_daily_card_from_database(conn):
     assert d.rating == 4.2 and d.delta == pytest.approx(-0.05)
     assert d.points[-3:] == [4.3, 4.25, 4.2] and d.points[0] is None
     assert d.releases == [(29, "5.3")]
-    assert d.verdict == "Sync bug is back" and d.chips[0] == ("bad", "Sync broken ~41%")
+    assert d.takeaway == "Sync bug is back" and d.chips[0] == ("bad", "Sync broken ~41%")
+    assert d.verdict == "Rating steady at 4.20★ with 120 new reviews."      # the card shows facts, not Claude's take
     assert ("46%", "1★ share today") in d.stats
 
 
@@ -72,7 +67,7 @@ def test_daily_card_without_summary_has_a_plain_verdict(conn):
     conn.execute("insert into app_snapshots (package, date, source_adapter, rating) values ('p', %s, 'stub', 4.4)",
                  (TODAY,))
     d, _, _ = daily_card(conn, "p", TODAY)
-    assert d.verdict == "Rating steady at 4.4★." and d.chips == []
+    assert d.verdict == "Rating steady at 4.40★." and d.chips == []
 
 
 def _chromium_available() -> bool:
@@ -116,7 +111,7 @@ KITE_GOOD = [{"theme": "Fast, reliable, easy to use", "share": 55, "example": "s
 
 def kite(**kw) -> CardData:
     base = {"name": "Zerodha Kite - Trade & Invest", "version": "3.11.11", "rating": 4.59, "delta": 0.03,
-            "points": [4.55] * 20 + [4.60] * 10, "verdict": "Account-switching and chart bugs drive most complaints.",
+            "points": [4.55] * 20 + [4.60] * 10, "takeaway": "Account-switching and chart bugs drive most complaints.",
             "today": TODAY, "released_days": 12, "new_reviews": 22, "star_counts": [3, 1, 2, 4, 12]}
     return data(**(base | kw))
 
@@ -144,7 +139,7 @@ def test_daily_caption_hides_varies_with_device_and_first_run_says_latest():
 def test_daily_caption_trims_examples_first_and_keeps_numbers():
     long_bad = [dict(c, theme=c["theme"] + " " + "x" * 50, example="y" * 110) for c in KITE_BAD]
     long_good = [dict(p, theme=p["theme"] + " " + "z" * 50, example="w" * 110) for p in KITE_GOOD]
-    text = daily_caption(kite(name="N" * 50, verdict="v" * 120), long_bad, long_good)
+    text = daily_caption(kite(name="N" * 50, takeaway="v" * 120), long_bad, long_good)
     assert visible_len(text) <= CAPTION_LIMIT
     assert "w" * 110 not in text and text.count("y" * 110) == 1    # praise and 2nd examples go first, only as needed
     assert "3. <b>Pledged" in text                                 # the 3rd complaint survives when it fits
@@ -159,7 +154,33 @@ def test_worst_case_keeps_star_breakdown_and_fits():
     w = "W"
     bad = [{"theme": w * 60, "share": 100, "status": "persisting", "since": "2026-09-01", "example": w * 120}] * 3
     good = [{"theme": w * 60, "share": 100, "example": w * 120}] * 3
-    text = daily_caption(kite(name=w * 50, verdict=w * 120, released_days=365, new_reviews=99999,
+    text = daily_caption(kite(name=w * 50, takeaway=w * 120, released_days=365, new_reviews=99999,
                               star_counts=[10, 10, 10, 10, 60]), bad, good)
     assert visible_len(text) <= CAPTION_LIMIT and "1★ 10% · 2★ 10% · 3★ 10% · 4★ 10% · 5★ 60%" in text
     assert "3. <b>" in text and "💡" in text
+
+
+def test_axis_labels_use_two_decimals_when_the_range_is_narrow():
+    svg = chart_svg([4.56, 4.59, 4.59], [(0, "a")], [])
+    labels = re.findall(r'font-size="12">([0-9.]+)</text>', svg)
+    assert all(len(l.split(".")[1]) == 2 for l in labels) and len(set(labels)) == len(labels)
+
+
+def test_card_header_uses_the_new_logo():
+    assert 'id="lgg"' in card_html(data()) and "polyline points=\"2,13" not in card_html(data())
+
+
+def test_report_caption():
+    from datetime import date as d_
+    d = data(period="Monthly", period_label="October 2026", rating=4.15, delta=-0.15, version="5.3",
+             takeaway="Rough month: sync broke, ads fixed", new_reviews=310, release_count=1,
+             low=(4.12, d_(2026, 10, 14)), high=4.31, star_counts=[60, 20, 30, 50, 150])
+    text = daily_caption(d, [{"theme": "Sync issues", "share": 40, "status": "persisting", "example": "x"},
+                             {"theme": "Ads", "share": 20, "status": "fixed"},
+                             {"theme": "Battery drain", "share": 10, "status": "new"}],
+                         [{"theme": "Fast search", "share": 30}])
+    assert "Google Play · October 2026 report · v5.3" in text
+    assert "⭐ <b>4.15</b> ▼0.15 over the month" in text and "Low 4.12 on 14 Oct · high 4.31" in text
+    assert "📝 <b>310 new reviews</b> · 1 release" in text and "1★ 19% · 2★ 6%" in text
+    assert "Sync issues</b> · 40% 🔁 ongoing" in text and "Ads</b> · 20% ✅ fixed" in text and "🆕" in text
+    assert "💡 Rough month: sync broke, ads fixed" in text and "vs yesterday" not in text

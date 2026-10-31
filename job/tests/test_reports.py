@@ -77,7 +77,7 @@ def test_monthly_card(conn):
     assert d.releases == [(13, "5.3")]
     assert ("310", "reviews") in d.stats and ("1", "releases") in d.stats and ("4.15", "lowest") in d.stats
     assert d.chips[:2] == [("bad", "Sync issues (persisting)"), ("bad", "Ads (fixed)")]
-    assert d.verdict == "Rough month: sync broke, ads fixed"
+    assert d.takeaway == "Rough month: sync broke, ads fixed" and d.verdict.startswith("Rating down")
 
 
 def test_quarterly_card_uses_weekly_averages(conn):

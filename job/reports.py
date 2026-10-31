@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 from . import budget, summaries
-from .card.render import CardData, Renderer, caption, card_html
+from .card.render import CardData, Renderer, daily_caption, card_html
 from .db import JobRun, connect, job_run, log_error, log_exception
 from .send import upload_card
 from .telegram import Telegram
@@ -99,7 +99,7 @@ def eligible_apps(conn, p: Period) -> list[str]:
 def report_card(conn, package: str, p: Period, themes: summaries.Summary | None) -> tuple[CardData, list, list]:
     app = conn.execute("select name, developer, icon_url from apps where package = %s", (package,)).fetchone()
     snaps = conn.execute(
-        """select date, rating::float as rating, version, new_reviews from app_snapshots
+        """select date, rating::float as rating, version, new_reviews, new_star_counts from app_snapshots
            where package = %s and date between %s and %s order by date""", (package, p.start, p.end)).fetchall()
     rated = [s for s in snaps if s["rating"] is not None]
     first, last = (rated[0], rated[-1]) if rated else (None, None)
@@ -143,12 +143,17 @@ def report_card(conn, package: str, p: Period, themes: summaries.Summary | None)
     chips = [("bad", _chip(c)) for c in complaints[:2]] + [("good", _chip(x)) for x in praise[:1]]
     sub = (f"{p.start.day} {p.start:%b} → {p.end.day} {p.end:%b}" +
            (f" · low of {low['rating']:.2f} on {low['date'].day} {low['date']:%b}" if low else ""))
-    verdict = (themes.verdict if themes and themes.verdict else _fallback(first, last, len(releases)))
+    verdict = _fallback(first, last, len(releases))   # card: facts; Claude's take goes in the caption
+    counts = [s["new_star_counts"] for s in snaps if s["new_star_counts"]]
+    stars = [sum(c[i] for c in counts) for i in range(5)] if counts else None
     d = CardData(period="Monthly" if p.kind == "monthly" else "Quarterly", period_label=p.label,
                  name=app["name"] or package, developer=app["developer"], version=last["version"] if last else None,
                  icon_url=app["icon_url"], rating=rating, delta=delta, subline=sub, stats=stats,
                  chart_title=chart_title, points=points, x_labels=x_labels, releases=releases, verdict=verdict,
-                 chips=chips)
+                 chips=chips, takeaway=themes.verdict if themes and themes.verdict else "", new_reviews=reviews or None,
+                 star_counts=stars, release_count=len(releases),
+                 low=(low["rating"], low["date"]) if low else None,
+                 high=max(s["rating"] for s in rated) if rated else None)
     return d, complaints, praise
 
 
@@ -227,7 +232,7 @@ def run_reports(conn, tg: Telegram, client, run: JobRun, today: date, renderer_f
                                         (pkg,)).fetchone()["n"]
                     themes = themes_for(conn, client, run, pkg, name, p, now)
                     d, complaints, praise = report_card(conn, pkg, p, themes)
-                    upload_card(conn, tg, pkg, p.kind, p.start, r.render(card_html(d)), caption(d, complaints, praise))
+                    upload_card(conn, tg, pkg, p.kind, p.start, r.render(card_html(d)), daily_caption(d, complaints, praise))
                     run.add("cards_rendered")
                     made[p.kind] += 1
                 except Exception as e:  # noqa: BLE001 — one App must not stop the rest

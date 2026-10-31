@@ -44,6 +44,11 @@ class CardData:
     new_reviews: int | None = None
     reviews_are_latest: bool = False          # first run: counts cover the latest reviews, not new ones
     star_counts: list[int] | None = None      # 1★..5★
+    takeaway: str = ""                        # Claude's verdict, caption only (the card shows `verdict`)
+    # Monthly and Quarterly captions only:
+    low: tuple[float, date] | None = None
+    high: float | None = None
+    release_count: int | None = None
 
 
 e = html.escape
@@ -69,11 +74,12 @@ def chart_svg(points: list[float | None], x_labels, releases, w=640, h=250) -> s
     out = [f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg">',
            f'<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{col}" '
            f'stop-opacity=".28"/><stop offset="1" stop-color="{col}" stop-opacity="0"/></linearGradient></defs>']
+    dp = 2 if hi - lo < 0.5 else 1   # 4.55 / 4.60, never "4.7" twice
     for k in range(5):
         v = lo + (hi - lo) * k / 4
         y = Y(v)
         out.append(f'<line x1="{pl}" x2="{w-pr}" y1="{y:.1f}" y2="{y:.1f}" stroke="#2a3140"/>'
-                   f'<text x="{pl-8}" y="{y+4:.1f}" text-anchor="end" fill="#7d8799" font-size="12">{v:.1f}</text>')
+                   f'<text x="{pl-8}" y="{y+4:.1f}" text-anchor="end" fill="#7d8799" font-size="12">{v:.{dp}f}</text>')
     for i, tag in releases:
         x = X(i)
         out.append(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{pt}" y2="{h-pb}" stroke="#5b6478" stroke-dasharray="3 4"/>'
@@ -96,13 +102,13 @@ def chart_svg(points: list[float | None], x_labels, releases, w=640, h=250) -> s
 
 
 def card_html(d: CardData) -> str:
-    rating = f"{d.rating:.1f}" if d.rating is not None else "–"
-    if d.delta is None or abs(d.delta) < 0.05:
+    rating = f"{d.rating:.2f}" if d.rating is not None else "–"   # same precision as the caption
+    if d.delta is None or abs(d.delta) < 0.005:
         delta = '<div class="delta flat">● steady</div>' if d.rating is not None else ""
     elif d.delta < 0:
-        delta = f'<div class="delta down">▼ {abs(d.delta):.1f}</div>'
+        delta = f'<div class="delta down">▼ {abs(d.delta):.2f}</div>'
     else:
-        delta = f'<div class="delta up">▲ {d.delta:.1f}</div>'
+        delta = f'<div class="delta up">▲ {d.delta:.2f}</div>'
     icon = (f'<img class="icon" src="{e(d.icon_url, quote=True)}" alt="">' if d.icon_url
             else f'<div class="icon letter">{e((d.name or "?")[:1].upper())}</div>')
     stats = "".join(f'<div class="stat"><div class="sv">{e(v)}</div><div class="sl">{e(l)}</div></div>'
@@ -117,7 +123,7 @@ body{{width:{W}px;height:{H}px;background:#0e1219;font-family:Inter,"Noto Sans",
 .card{{position:absolute;inset:0;padding:34px 44px;background:radial-gradient(900px 500px at 100% 0%,#1d2433 0%,#0e1219 60%)}}
 .top{{display:flex;justify-content:space-between;align-items:center}}
 .brand{{display:flex;align-items:center;gap:12px;font-weight:700;font-size:22px}}
-.logo{{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#34d399,#0ea5e9);display:grid;place-items:center}}
+
 .period{{display:flex;align-items:center;gap:12px}}
 .pill{{font-size:13px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;padding:7px 14px;border-radius:99px;background:#1f2633;color:#9fe7c8;border:1px solid #2c3546}}
 .date{{color:#9aa4b6;font-size:17px;font-weight:500}}
@@ -149,7 +155,7 @@ body{{width:{W}px;height:{H}px;background:#0e1219;font-family:Inter,"Noto Sans",
 .dot{{width:9px;height:9px;border-radius:50%;flex:none}}
 .bad .dot{{background:#ff6b5e}} .good .dot{{background:#34d399}}
 </style></head><body><div class="card">
-<div class="top"><div class="brand"><div class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#06221a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,13 7,13 10,5 14,19 17,11 22,11"/></svg></div>{BOT_NAME}</div>
+<div class="top"><div class="brand"><svg width="38" height="38" viewBox="0 0 512 512"><defs><radialGradient id="lgbg" cx="80%" cy="10%" r="110%"><stop offset="0" stop-color="#1f2a3d"/><stop offset=".65" stop-color="#0e1219"/></radialGradient><linearGradient id="lgg" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#6ee7b7"/></linearGradient></defs><rect width="512" height="512" rx="112" fill="url(#lgbg)" stroke="#2c3546" stroke-width="12"/><g transform="translate(256 262) scale(.78) translate(-279 -244)"><g fill="#2c3a50"><rect x="112" y="330" width="58" height="82" rx="14"/><rect x="194" y="290" width="58" height="122" rx="14"/><rect x="276" y="266" width="58" height="146" rx="14"/></g><rect x="358" y="214" width="58" height="198" rx="14" fill="url(#lgg)"/><path transform="translate(387 138) scale(.34) translate(-256 -243)" d="M256 92 L303 196 L416 207 L331 283 L356 394 L256 336 L156 394 L181 283 L96 207 L209 196 Z" fill="#6ee7b7" stroke="#6ee7b7" stroke-width="30" stroke-linejoin="round"/></g></svg>{BOT_NAME}</div>
 <div class="period"><div class="pill">{e(d.period)}</div><div class="date">{e(d.period_label)}</div></div></div>
 <div class="main"><div class="left">
 <div class="app">{icon}<div style="min-width:0"><div class="an">{e(d.name)}</div><div class="ad">{e(sub)}</div></div></div>
@@ -159,30 +165,6 @@ body{{width:{W}px;height:{H}px;background:#0e1219;font-family:Inter,"Noto Sans",
 {chart_svg(d.points, d.x_labels, d.releases)}</div></div>
 <div class="bottom"><div class="verdict">{e(d.verdict)}{muted}</div><div class="chips">{chips}</div></div>
 </div></body></html>"""
-
-
-def caption(d: CardData, complaints: list[dict], praise: list[dict]) -> str:
-    """Telegram HTML caption, at most 1,024 characters."""
-    head = [f"<b>{e(d.name)}</b>"]
-    if d.rating is not None:
-        r = f"{d.rating:.1f}★"
-        if d.delta is not None and abs(d.delta) >= 0.05:
-            r += f" {'▼' if d.delta < 0 else '▲'}{abs(d.delta):.1f}"
-        head.append(r)
-    if d.version:
-        head.append(f"v{e(d.version)}")
-    lines = [" · ".join(head)]
-    for c in complaints[:3]:
-        lines.append(f"😡 {e(c['theme'])}" + (f" (~{c['share']}%)" if c.get("share") is not None else ""))
-    for p in praise[:2]:
-        lines.append(f"😍 {e(p['theme'])}" + (f" (~{p['share']}%)" if p.get("share") is not None else ""))
-    if d.verdict:
-        lines.append(f"\n{e(d.verdict)}")
-    text = "\n".join(lines)
-    while len(text) > CAPTION_LIMIT and len(lines) > 1:
-        lines.pop(-1 if not lines[-1].startswith("\n") else -2)
-        text = "\n".join(lines)
-    return text[:CAPTION_LIMIT]
 
 
 VARIES = "Varies with device"
@@ -205,8 +187,11 @@ def _tag(item: dict, today: date | None) -> str:
     return ""
 
 
+REPORT_TAG = {"persisting": " 🔁 ongoing", "fixed": " ✅ fixed", "new": " 🆕"}
+
+
 def daily_caption(d: CardData, complaints: list[dict], praise: list[dict]) -> str:
-    """The Daily Update caption: rating, review mix, top complaints and praise, takeaway.
+    """The Update caption (Daily, Monthly, Quarterly): rating, review mix, top complaints and praise, takeaway.
 
     Fits Telegram's 1,024 characters by dropping, in order: example lines, the 3rd complaint,
     the 2nd praise, the takeaway. The star breakdown and numbers always stay. Numbers are never cut mid-line.
@@ -216,15 +201,30 @@ def daily_caption(d: CardData, complaints: list[dict], praise: list[dict]) -> st
     def add(text: str, rank: int = 0) -> None:
         parts.append((rank, text))
 
+    report = d.period != "Daily"
     add(f"<b>{e(d.name)}</b>")
     meta = [d.store]
-    if d.version and d.version != VARIES:
+    if report:
+        meta.append(f"{e(d.period_label)} report")
+        if d.version and d.version != VARIES:
+            meta.append(f"v{e(d.version)}")
+    elif d.version and d.version != VARIES:
         meta.append(f"v{e(d.version)}" + (f", released {_ago(d.released_days)}" if d.released_days is not None else ""))
     elif d.released_days is not None:
         meta.append(f"updated {_ago(d.released_days)}")
     add(" · ".join(meta))
     add("")
-    if d.rating is not None:
+    span = {"Monthly": "the month", "Quarterly": "the quarter"}.get(d.period, "")
+    if d.rating is not None and report:
+        r = f"⭐ <b>{d.rating:.2f}</b>"
+        if d.delta is not None and abs(d.delta) >= 0.005:
+            r += f" {'▼' if d.delta < 0 else '▲'}{abs(d.delta):.2f} over {span}"
+        elif d.delta is not None:
+            r += f" · steady over {span}"
+        add(r)
+        if d.low and d.high is not None:
+            add(f"Low {d.low[0]:.2f} on {d.low[1].day} {d.low[1]:%b} · high {d.high:.2f}")
+    elif d.rating is not None:
         r = f"⭐ <b>{d.rating:.2f}</b>"
         if d.delta is not None and abs(d.delta) >= 0.005:
             r += f" {'▼' if d.delta < 0 else '▲'}{abs(d.delta):.2f} vs yesterday"
@@ -234,7 +234,13 @@ def daily_caption(d: CardData, complaints: list[dict], praise: list[dict]) -> st
         if len(vals) >= 7:
             r += f" · 30d {min(vals):.2f}–{max(vals):.2f}"
         add(r)
-    if d.new_reviews:
+    if report and (d.new_reviews or d.release_count):
+        rel = f" · {d.release_count} release{'s' if d.release_count != 1 else ''}" if d.release_count else ""
+        add(f"📝 <b>{d.new_reviews or 0:,} new reviews</b>{rel}")
+        if d.star_counts and sum(d.star_counts):
+            total = sum(d.star_counts)
+            add(" · ".join(f"{s}★ {round(100 * n / total)}%" for s, n in enumerate(d.star_counts, 1)))
+    elif d.new_reviews:
         add(f"📝 <b>{'Latest ' if d.reviews_are_latest else ''}{d.new_reviews:,} {'reviews' if d.reviews_are_latest else 'new reviews'}</b>")
         if d.star_counts and sum(d.star_counts):
             total = sum(d.star_counts)
@@ -244,7 +250,8 @@ def daily_caption(d: CardData, complaints: list[dict], praise: list[dict]) -> st
         add("<b>😡 Top complaints</b>")
         for i, c in enumerate(complaints[:3], 1):
             share = f" · {c['share']}%" if c.get("share") is not None else ""
-            add(f"{i}. <b>{e(c['theme'])}</b>{share}{_tag(c, d.today)}", 6 if i == 3 else 0)
+            tag = REPORT_TAG.get(c.get("status"), "") if report else _tag(c, d.today)
+            add(f"{i}. <b>{e(c['theme'])}</b>{share}{tag}", 6 if i == 3 else 0)
             if c.get("example") and i <= 2:
                 add(f"<i>{e(c['example'])}</i>", 9 if i == 2 else 8)
     if praise:
@@ -255,9 +262,9 @@ def daily_caption(d: CardData, complaints: list[dict], praise: list[dict]) -> st
             add(f"{i}. <b>{e(p['theme'])}</b>{share}", 5 if i == 2 else 0)
             if p.get("example") and i == 1:
                 add(f"<i>{e(p['example'])}</i>", 10)
-    if d.verdict:
+    if d.takeaway:
         add("")
-        add(f"💡 {e(d.verdict)}", 2)
+        add(f"💡 {e(d.takeaway)}", 2)
 
     def render(ps: list[tuple[int, str]]) -> str:
         text = "\n".join(t for _, t in ps)
@@ -312,14 +319,15 @@ def daily_card(conn, package: str, today: date) -> tuple[CardData, list[dict], l
     if cur.get("version"):
         stats.append((f"v{cur['version']}" if cur["version"] != "Varies with device" else "varies", "version"))
     chips = [("bad", _chip(c)) for c in complaints[:2]] + [("good", _chip(p)) for p in praise[:1]]
-    verdict = (s and s["verdict"]) or _fallback_verdict(rating, delta, n)
+    verdict = _fallback_verdict(rating, delta, n)          # card: facts; Claude's take goes in the caption
+    takeaway = (s and s["verdict"]) or ""
     d = CardData(
         period="Daily", period_label=f"{today.day} {today:%b %Y}", name=app["name"] or package,
         developer=app["developer"], version=cur.get("version"), icon_url=app["icon_url"], rating=rating,
         delta=delta, subline="vs yesterday" + (f" · {n:,} new reviews" if n else ""), stats=stats,
         chart_title="last 30 days", points=points,
         x_labels=[(0, f"{start.day} {start:%b}"), (14, f"{days[14].day} {days[14]:%b}"), (29, "Today")],
-        releases=releases, verdict=verdict, chips=chips, today=today,
+        releases=releases, verdict=verdict, chips=chips, today=today, takeaway=takeaway,
         released_days=(today - cur["updated_at"].date()).days if cur.get("updated_at") else None,
         new_reviews=n if n is not None else (sum(cur["new_star_counts"]) if cur.get("new_star_counts") else None),
         reviews_are_latest=n is None, star_counts=cur.get("new_star_counts"))
@@ -334,10 +342,10 @@ def _fallback_verdict(rating, delta, n) -> str:
     if rating is None:
         return "Tracking started. Trends appear from tomorrow."
     if delta is not None and abs(delta) >= 0.05:
-        return f"Rating {'down' if delta < 0 else 'up'} {abs(delta):.1f} since yesterday."
+        return f"Rating {'down' if delta < 0 else 'up'} {abs(delta):.2f} since yesterday, now {rating:.2f}★."
     if n:
-        return f"Rating steady at {rating:.1f}★ with {n:,} new reviews."
-    return f"Rating steady at {rating:.1f}★."
+        return f"Rating steady at {rating:.2f}★ with {n:,} new reviews."
+    return f"Rating steady at {rating:.2f}★."
 
 
 # --- rendering -------------------------------------------------------------------
