@@ -34,7 +34,7 @@ export interface Deps {
   loginLink?: () => string;
 }
 
-const DEFAULTS = { watchlistMax: 10, actionLimitPerHour: 20, newAppQuota: 5, onDemandBudget: 200 };
+const DEFAULTS = { watchlistMax: 10, actionLimitPerHour: 20, newAppQuota: 10, onDemandBudget: 200 };
 const DEBOUNCE_MS = 60_000;
 const CARD_FRESH_MS = 30 * 60 * 60 * 1000;
 const PENDING_MS = 10 * 60 * 1000;
@@ -380,7 +380,8 @@ async function startOnDemand(chatId: number, pkg: string, deps: Deps, now: Date)
   if (!deps.dispatch) return false;
   const day = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const quota = await configInt(repo, 'new_app_quota_per_user_per_day', DEFAULTS.newAppQuota);
-  if ((await repo.countOnDemand(day, chatId)) >= quota) {
+  // The Admin is exempt: testing, country moves and re-runs must not wait a day.
+  if (chatId !== deps.adminChatId && (await repo.countOnDemand(day, chatId)) >= quota) {
     await repo.logEvent(chatId, 'on_demand_skipped', { reason: 'user_quota', package: pkg });
     return false;
   }

@@ -60,7 +60,7 @@ Rejected approaches:
 - **Global Pause** — `users.paused = true`. No Updates or Alerts to that User.
 - **App Pause** — `watchlist.paused = true`. No Updates or Alerts for that App to that User.
 - **On-demand Run** — a one-off Daily Job run for Apps that have no Card for today, started by the Webhook Function through `repository_dispatch`.
-- **New-App Quota** — the maximum number of On-demand Run Apps one User can trigger per day. Value: 5.
+- **New-App Quota** — the maximum number of On-demand Run Apps one User can trigger per day, including Country Changes. Value: 10 (the Watchlist maximum). The Admin is exempt.
 - **On-demand Budget** — the maximum number of On-demand Run Apps across all Users per day. Value: 200.
 - **Action Limit** — the maximum number of add and remove actions one User can do per hour. Value: 20.
 - **Monthly Budget** — the maximum Claude spend per calendar month. Value: $30. Set in two places that must match: the spend limit in the Anthropic Console, and `monthly_budget_usd` in the `config` table (seeded from `MONTHLY_BUDGET_USD`).

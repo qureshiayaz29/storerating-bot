@@ -319,11 +319,15 @@ describe('On-demand Runs after /add', () => {
     expect(tg.last().text).toContain('Your first update arrives in a few minutes');
   });
 
-  it('the 6th new app in a day waits for the digest (New-App Quota)', async () => {
-    for (const p of ['a', 'b', 'c', 'd', 'e', 'f']) await send(msg(`/add com.example.${p}`));
-    expect(repo.onDemand).toHaveLength(5);
+  it('the 11th new app in a day waits for the digest (New-App Quota); the Admin is exempt', async () => {
+    repo.config.set('watchlist_max_apps', '20');
+    const apps = 'abcdefghijk'.split('');
+    for (const p of apps) await send(msg(`/add com.example.${p}`));
+    expect(repo.onDemand).toHaveLength(10);
     expect(tg.last().text).toContain('First update at 11:00');
     expect(repo.events.at(-1)).toMatchObject({ event: 'on_demand_skipped', props: { reason: 'user_quota' } });
+    for (const p of apps) await send(msg(`/add com.example.${p}`, ADMIN));
+    expect(repo.onDemand.filter((o) => o.chat_id === ADMIN)).toHaveLength(11);
   });
 
   it('the On-demand Budget stops runs for everyone and alerts the Admin once', async () => {

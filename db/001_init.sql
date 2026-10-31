@@ -183,7 +183,7 @@ insert into config (key, value) values
   ('vercel_limit_invocations',        '1000000'),
   ('vercel_limit_active_cpu_hours',   '4'),
   ('vercel_limit_data_transfer_gb',   '100'),
-  ('new_app_quota_per_user_per_day',  '5'),
+  ('new_app_quota_per_user_per_day',  '10'),
   ('on_demand_budget_per_day',        '200'),
   ('action_limit_per_hour',           '20'),
   ('watchlist_max_apps',              '10');
