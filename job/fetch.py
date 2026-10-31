@@ -105,13 +105,15 @@ def save(conn, today: date, out: FetchOutcome) -> None:
         (l.name, l.developer, l.icon_url, out.package),
     )
     new_count = None if out.first_run else len(out.reviews)
+    stars = [sum(1 for r in out.reviews if r.stars == s) for s in range(1, 6)] if out.reviews else None
     new_one_star = None
     if not out.first_run and out.reviews:
         new_one_star = round(sum(1 for r in out.reviews if r.stars == 1) / len(out.reviews), 4)
     conn.execute(
         """insert into app_snapshots (package, date, source_adapter, version, rating, review_count,
-               installs_tier, size, one_star_share, updated_at, release_notes, new_reviews, new_one_star_share)
-           values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               installs_tier, size, one_star_share, updated_at, release_notes, new_reviews, new_one_star_share,
+               new_star_counts)
+           values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
            on conflict (package, date) do update set
                source_adapter = excluded.source_adapter, version = excluded.version, rating = excluded.rating,
                review_count = excluded.review_count, installs_tier = excluded.installs_tier, size = excluded.size,
@@ -119,9 +121,14 @@ def save(conn, today: date, out: FetchOutcome) -> None:
                release_notes = excluded.release_notes,
                new_reviews = case when excluded.new_reviews is null then app_snapshots.new_reviews
                                   else coalesce(app_snapshots.new_reviews, 0) + excluded.new_reviews end,
-               new_one_star_share = coalesce(excluded.new_one_star_share, app_snapshots.new_one_star_share)""",
+               new_one_star_share = coalesce(excluded.new_one_star_share, app_snapshots.new_one_star_share),
+               new_star_counts = case
+                 when excluded.new_star_counts is null then app_snapshots.new_star_counts
+                 when app_snapshots.new_star_counts is null then excluded.new_star_counts
+                 else array(select a + b from unnest(app_snapshots.new_star_counts, excluded.new_star_counts) as t(a, b))
+               end""",
         (out.package, today, out.adapter, l.version, l.rating, l.review_count, l.installs_tier, l.size,
-         l.one_star_share, l.updated_at, l.release_notes, new_count, new_one_star),
+         l.one_star_share, l.updated_at, l.release_notes, new_count, new_one_star, stars),
     )
     if out.reviews:
         newest = out.reviews[0]

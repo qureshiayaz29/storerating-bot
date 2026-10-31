@@ -115,3 +115,19 @@ def test_health_check():
     assert not ok and "missing" in msg
     ok, msg = check(Broken("parse_failed"))
     assert not ok and "parse_failed" in msg
+
+
+def test_star_counts_are_saved_and_added_up_within_a_day(conn):
+    from datetime import date
+    from job.fetch import save
+    seed(conn, "p")
+    listing = Listing(store="google_play", package="p", name="P", developer=None, icon_url=None, version="1",
+                      rating=4.0, review_count=10, rating_histogram=None, installs_tier=None, size=None, updated_at=None, release_notes=None)
+    def rev(i, stars):
+        return Review(id=f"r{i}", stars=stars, text="some review text", thumbs_up=0, app_version=None,
+                      created_at="2026-10-31T00:00:00Z")
+    day = date(2026, 10, 31)
+    save(conn, day, FetchOutcome("p", 1, listing=listing, adapter="stub", reviews=[rev(1, 1), rev(2, 5), rev(3, 5)]))
+    save(conn, day, FetchOutcome("p", 1, listing=listing, adapter="stub", reviews=[rev(4, 1)]))
+    row = conn.execute("select new_star_counts from app_snapshots where package = 'p'").fetchone()
+    assert row["new_star_counts"] == [2, 0, 0, 0, 2]

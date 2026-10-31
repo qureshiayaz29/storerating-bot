@@ -197,3 +197,23 @@ def test_params_disable_thinking_and_leave_headroom():
     from job.summaries import MAX_TOKENS, _params
     p = _params("x")
     assert p["thinking"] == {"type": "disabled"} and p["max_tokens"] == MAX_TOKENS >= 1000
+
+
+def test_parse_sorts_by_share_and_keeps_since():
+    from job.summaries import parse
+    s = parse('{"complaints": [{"theme": "a", "share": 12}, {"theme": "b", "share": 25, "status": "persisting", '
+              '"since": "2026-10-28"}, {"theme": "c"}], "praise": [], "verdict": "v"}')
+    assert [c["theme"] for c in s.complaints] == ["b", "a", "c"]
+    assert s.complaints[0]["since"] == "2026-10-28" and "since" not in s.complaints[1]
+
+
+def test_daily_context_lists_recent_themes(conn):
+    from datetime import date
+    from job.db import Jsonb
+    from job.summaries import daily_context
+    conn.execute("insert into apps (package) values ('p')")
+    assert daily_context(conn, "p", date(2026, 10, 31)) == ""
+    conn.execute("""insert into summaries (package, period, period_start, complaints, praise, verdict)
+                    values ('p', 'daily', '2026-10-30', %s, '[]', 'v')""", (Jsonb([{"theme": "Charts slow"}]),))
+    ctx = daily_context(conn, "p", date(2026, 10, 31))
+    assert "Today: 2026-10-31" in ctx and "2026-10-30: Charts slow" in ctx and '"since"' in ctx

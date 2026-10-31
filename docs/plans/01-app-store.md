@@ -55,11 +55,11 @@ Rejected:
 16. Run the Store Source health check once per Store in `job/daily.py`.
 
 ### Phase C — Database
-17. Create `db/007_app_store.sql`.
+17. Create `db/008_app_store.sql`.
 18. Add the column `users.app_store_country text` with a check for two lower-case letters.
 19. Add a check on `apps.store` for `google_play` or `app_store`.
 20. Add a check that `apps.package` starts with `ios:` exactly when `apps.store` is `app_store`.
-21. Apply `db/007_app_store.sql` to Supabase.
+21. Apply `db/008_app_store.sql` to Supabase.
 
 ### Phase D — Webhook Function
 22. Add `parseAppStore(input)` to `web/src/sources/contract.ts`. Accept `apps.apple.com/<country>/app/<slug>/id<track id>`, `apps.apple.com/app/id<track id>` and `id<track id>`. Return Track ID and App Store Country or null.

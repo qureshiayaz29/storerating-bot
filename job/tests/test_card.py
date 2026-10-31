@@ -97,3 +97,59 @@ def test_line_colour_follows_trend():
     assert "#34d399" in chart_svg([4.0, 4.3], [], []) and "#ff6b5e" not in chart_svg([4.0, 4.3], [], [])
     assert 'stroke="#ff6b5e"' in chart_svg([4.3, 4.0], [], [])
     assert 'stroke="#9aa4b6"' in chart_svg([4.3, 4.31], [], [])
+
+
+# --- daily caption ---------------------------------------------------------------------
+
+from job.card.render import daily_caption, visible_len  # noqa: E402
+
+KITE_BAD = [
+    {"theme": "Login and positions blank after account switch", "share": 67, "status": "new", "since": "2026-10-29",
+     "example": "positions screen stays empty after switching accounts"},
+    {"theme": "Charts fail to load in trading hours", "share": 33, "status": "persisting", "since": "2026-10-27",
+     "example": "chart keeps spinning at market open"},
+    {"theme": "Pledged shares unavailable for delivery", "share": 33},
+]
+KITE_GOOD = [{"theme": "Fast, reliable, easy to use", "share": 55, "example": "smoothest trading app"},
+             {"theme": "Helpful customer support", "share": 36}]
+
+
+def kite(**kw) -> CardData:
+    base = {"name": "Zerodha Kite - Trade & Invest", "version": "3.11.11", "rating": 4.59, "delta": 0.03,
+            "points": [4.55] * 20 + [4.60] * 10, "verdict": "Account-switching and chart bugs drive most complaints.",
+            "today": TODAY, "released_days": 12, "new_reviews": 22, "star_counts": [3, 1, 2, 4, 12]}
+    return data(**(base | kw))
+
+
+def test_daily_caption_has_every_section():
+    text = daily_caption(kite(), KITE_BAD, KITE_GOOD)
+    assert text.startswith("<b>Zerodha Kite - Trade &amp; Invest</b>\nGoogle Play · v3.11.11, released 12 days ago")
+    assert "⭐ <b>4.59</b> ▲0.03 vs yesterday · 30d 4.55–4.60" in text
+    assert "📝 <b>22 new reviews</b>" in text and "1★ 14% · 2★ 5% · 3★ 9% · 4★ 18% · 5★ 55%" in text
+    assert "1. <b>Login and positions blank after account switch</b> · 67% 🆕" in text
+    assert "2. <b>Charts fail to load in trading hours</b> · 33% 🔁 3 days" in text
+    assert "<i>positions screen stays empty after switching accounts</i>" in text
+    assert "😍 What users like" in text and "💡 Account-switching" in text
+    assert "Open on Google Play" not in text and "\n\n\n" not in text
+    assert visible_len(text) <= CAPTION_LIMIT
+
+
+def test_daily_caption_hides_varies_with_device_and_first_run_says_latest():
+    text = daily_caption(kite(version="Varies with device", new_reviews=500, reviews_are_latest=True, delta=None),
+                         [], [])
+    assert "Varies" not in text and "Google Play · updated 12 days ago" in text
+    assert "📝 <b>Latest 500 reviews</b>" in text and "vs yesterday" not in text
+
+
+def test_daily_caption_trims_examples_first_and_keeps_numbers():
+    long_bad = [dict(c, theme=c["theme"] + " " + "x" * 50, example="y" * 110) for c in KITE_BAD]
+    long_good = [dict(p, theme=p["theme"] + " " + "z" * 50, example="w" * 110) for p in KITE_GOOD]
+    text = daily_caption(kite(name="N" * 50, verdict="v" * 120), long_bad, long_good)
+    assert visible_len(text) <= CAPTION_LIMIT
+    assert "w" * 110 not in text and text.count("y" * 110) == 1    # praise and 2nd examples go first, only as needed
+    assert "3. <b>Pledged" in text                                 # the 3rd complaint survives when it fits
+    assert "⭐ <b>4.59</b>" in text and "1. <b>Login" in text          # never the numbers or the top complaint
+
+
+def test_visible_len_counts_like_telegram():
+    assert visible_len("<b>a &amp; b</b> 😀") == len("a & b ") + 2

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html
 import math
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -36,6 +37,13 @@ class CardData:
     verdict: str
     verdict_muted: str = ""
     chips: list[tuple[str, str]] = field(default_factory=list)  # (bad|good, text)
+    # Daily caption only:
+    today: date | None = None
+    store: str = "Google Play"
+    released_days: int | None = None          # days since the store's "updated on" date
+    new_reviews: int | None = None
+    reviews_are_latest: bool = False          # first run: counts cover the latest reviews, not new ones
+    star_counts: list[int] | None = None      # 1★..5★
 
 
 e = html.escape
@@ -177,13 +185,107 @@ def caption(d: CardData, complaints: list[dict], praise: list[dict]) -> str:
     return text[:CAPTION_LIMIT]
 
 
+VARIES = "Varies with device"
+
+
+def visible_len(html_text: str) -> int:
+    """Length as Telegram counts it: tags removed, entities decoded, UTF-16 code units."""
+    return len(html.unescape(re.sub(r"<[^>]+>", "", html_text)).encode("utf-16-le")) // 2
+
+
+def _tag(item: dict, today: date | None) -> str:
+    if item.get("status") == "new":
+        return " 🆕"
+    if item.get("status") == "persisting" and item.get("since") and today:
+        try:
+            days = (today - date.fromisoformat(item["since"])).days + 1
+        except ValueError:
+            return ""
+        return f" 🔁 {days} days" if days >= 2 else ""
+    return ""
+
+
+def daily_caption(d: CardData, complaints: list[dict], praise: list[dict]) -> str:
+    """The Daily Update caption: rating, review mix, top complaints and praise, takeaway.
+
+    Fits Telegram's 1,024 characters by dropping, in order: example lines, the 3rd complaint,
+    the 2nd praise, the star breakdown, the takeaway. Numbers are never cut mid-line.
+    """
+    parts: list[tuple[int, str]] = []    # (drop rank: higher goes first; 0 = never, text)
+
+    def add(text: str, rank: int = 0) -> None:
+        parts.append((rank, text))
+
+    add(f"<b>{e(d.name)}</b>")
+    meta = [d.store]
+    if d.version and d.version != VARIES:
+        meta.append(f"v{e(d.version)}" + (f", released {_ago(d.released_days)}" if d.released_days is not None else ""))
+    elif d.released_days is not None:
+        meta.append(f"updated {_ago(d.released_days)}")
+    add(" · ".join(meta))
+    add("")
+    if d.rating is not None:
+        r = f"⭐ <b>{d.rating:.2f}</b>"
+        if d.delta is not None and abs(d.delta) >= 0.005:
+            r += f" {'▼' if d.delta < 0 else '▲'}{abs(d.delta):.2f} vs yesterday"
+        elif d.delta is not None:
+            r += " · no change"
+        vals = [p for p in d.points if p is not None]
+        if len(vals) >= 7:
+            r += f" · 30d {min(vals):.2f}–{max(vals):.2f}"
+        add(r)
+    if d.new_reviews:
+        add(f"📝 <b>{'Latest ' if d.reviews_are_latest else ''}{d.new_reviews:,} {'reviews' if d.reviews_are_latest else 'new reviews'}</b>")
+        if d.star_counts and sum(d.star_counts):
+            total = sum(d.star_counts)
+            add(" · ".join(f"{s}★ {round(100 * n / total)}%" for s, n in enumerate(d.star_counts, 1)), 3)
+    if complaints:
+        add("")
+        add("<b>😡 Top complaints</b>")
+        for i, c in enumerate(complaints[:3], 1):
+            share = f" · {c['share']}%" if c.get("share") is not None else ""
+            add(f"{i}. <b>{e(c['theme'])}</b>{share}{_tag(c, d.today)}", 6 if i == 3 else 0)
+            if c.get("example") and i <= 2:
+                add(f"<i>{e(c['example'])}</i>", 9 if i == 2 else 8)
+    if praise:
+        add("")
+        add("<b>😍 What users like</b>")
+        for i, p in enumerate(praise[:2], 1):
+            share = f" · {p['share']}%" if p.get("share") is not None else ""
+            add(f"{i}. <b>{e(p['theme'])}</b>{share}", 5 if i == 2 else 0)
+            if p.get("example") and i == 1:
+                add(f"<i>{e(p['example'])}</i>", 10)
+    if d.verdict:
+        add("")
+        add(f"💡 {e(d.verdict)}", 2)
+
+    def render(ps: list[tuple[int, str]]) -> str:
+        text = "\n".join(t for _, t in ps)
+        return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    text = render(parts)
+    for rank in sorted({r for r, _ in parts if r}, reverse=True):
+        if visible_len(text) <= CAPTION_LIMIT:
+            break
+        parts = [(r, t) for r, t in parts if r != rank]
+        text = render(parts)
+    while visible_len(text) > CAPTION_LIMIT and len(parts) > 1:   # very long names or themes
+        parts.pop()
+        text = render(parts)
+    return text
+
+
+def _ago(days: int) -> str:
+    return "today" if days <= 0 else "yesterday" if days == 1 else f"{days} days ago"
+
+
 # --- building CardData from the database -------------------------------------------
 
 def daily_card(conn, package: str, today: date) -> tuple[CardData, list[dict], list[dict]]:
     app = conn.execute("select name, developer, icon_url from apps where package = %s", (package,)).fetchone()
     start = today - timedelta(days=29)
     snaps = {r["date"]: r for r in conn.execute(
-        """select date, rating, version, new_reviews, new_one_star_share from app_snapshots
+        """select date, rating, version, new_reviews, new_one_star_share, new_star_counts, updated_at from app_snapshots
            where package = %s and date between %s and %s""", (package, start, today)).fetchall()}
     days = [start + timedelta(days=i) for i in range(30)]
     points = [float(snaps[d]["rating"]) if d in snaps and snaps[d]["rating"] is not None else None for d in days]
@@ -217,7 +319,10 @@ def daily_card(conn, package: str, today: date) -> tuple[CardData, list[dict], l
         delta=delta, subline="vs yesterday" + (f" · {n:,} new reviews" if n else ""), stats=stats,
         chart_title="last 30 days", points=points,
         x_labels=[(0, f"{start.day} {start:%b}"), (14, f"{days[14].day} {days[14]:%b}"), (29, "Today")],
-        releases=releases, verdict=verdict, chips=chips)
+        releases=releases, verdict=verdict, chips=chips, today=today,
+        released_days=(today - cur["updated_at"].date()).days if cur.get("updated_at") else None,
+        new_reviews=n if n is not None else (sum(cur["new_star_counts"]) if cur.get("new_star_counts") else None),
+        reviews_are_latest=n is None, star_counts=cur.get("new_star_counts"))
     return d, complaints, praise
 
 

@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import admin_report, alerts, budget, cleanup, fetch, health, platform_usage, reports, stats, summaries
-from .card.render import Renderer, caption, card_html, daily_card
+from .card.render import Renderer, card_html, daily_caption, daily_card
 from .db import JobRun, connect, job_run, log_exception
 from .send import Pacer, mark_alerts_sent, pending_alerts, upload_card
 from .sources import registry
@@ -47,7 +47,7 @@ def make_cards(conn, tg: Telegram, run: JobRun, outcomes, today: date, alert_pkg
         for out in todo:
             try:
                 d, complaints, praise = daily_card(conn, out.package, today)
-                upload_card(conn, tg, out.package, "daily", today, r.render(card_html(d)), caption(d, complaints, praise))
+                upload_card(conn, tg, out.package, "daily", today, r.render(card_html(d)), daily_caption(d, complaints, praise))
                 made += 1
             except Exception as e:  # noqa: BLE001 — one card must not stop the rest
                 log_exception(conn, "render", out.package, e)

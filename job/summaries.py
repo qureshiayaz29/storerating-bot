@@ -13,7 +13,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from . import budget
 from .db import Jsonb, JobRun, log_error
@@ -48,7 +48,13 @@ Return JSON exactly in this shape:
 {{"complaints": [{{"theme": "<4–6 words>", "share": <0–100, % of complaint reviews>, "example": "<short paraphrase, max 12 words>"}}],
   "praise": [{{"theme": "<4–6 words>", "share": <0–100, % of praise reviews>, "example": "<short paraphrase, max 12 words>"}}],
   "verdict": "<one line, max 90 characters, what changed and why it matters>"}}
-Up to 3 items each, biggest first. Use an empty list when a side has no reviews."""
+Up to 3 items each, sorted by share, biggest first. Praise lists only things users like: never put a bug, complaint or feature request in praise.
+Use an empty list when a side has no reviews."""
+
+DAILY_CONTEXT = """Today: {today}
+Complaint themes from recent days:
+{history}
+For each complaint add "status": "persisting" and "since": "<first date it appears above>" when it matches one of these themes, otherwise "status": "new" and "since": "{today}"."""
 
 
 @dataclass
@@ -143,12 +149,27 @@ def parse(text: str) -> Summary:
             share = it.get("share")
             share = max(0, min(100, round(float(share)))) if isinstance(share, (int, float)) else None
             item = {"theme": theme[:60], "share": share, "example": str(it.get("example", "")).strip()[:120]}
-            if it.get("status") in ("persisting", "fixed", "new"):  # monthly and quarterly reports
+            if it.get("status") in ("persisting", "fixed", "new"):  # daily (with history) and reports
                 item["status"] = it["status"]
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(it.get("since", ""))):
+                item["since"] = it["since"]
             out.append(item)
         return out
 
-    return Summary(items("complaints"), items("praise"), str(data.get("verdict", "")).strip()[:120])
+    def by_share(xs: list[dict]) -> list[dict]:
+        return sorted(xs, key=lambda x: -1 if x["share"] is None else x["share"], reverse=True)
+
+    return Summary(by_share(items("complaints")), by_share(items("praise")), str(data.get("verdict", "")).strip()[:120])
+
+
+def daily_context(conn, package: str, today: date, days: int = 7) -> str:
+    """Recent complaint themes, so Claude can mark each complaint new or persisting. Empty without history."""
+    rows = conn.execute(
+        """select period_start, complaints from summaries
+           where package = %s and period = 'daily' and period_start >= %s and period_start < %s
+           order by period_start""", (package, today - timedelta(days=days), today)).fetchall()
+    lines = [f"{r['period_start']}: " + "; ".join(c["theme"] for c in r["complaints"]) for r in rows if r["complaints"]]
+    return DAILY_CONTEXT.format(today=today, history="\n".join(lines)) if lines else ""
 
 
 def store(conn, package: str, today: date, s: Summary, period: str = "daily") -> None:
@@ -221,7 +242,8 @@ def run_summaries(conn, client, outcomes: list[FetchOutcome], today: date, run: 
     room = 0.0 if state.degraded else min(state.remaining_today, budget.DEGRADE_AT * state.available_today - state.spent_today)
     admitted: list[PreparedRequest] = []
     for out in budget.priority_order([o for o in outcomes if o.ok]):
-        req = prepare(out, batch=use_batch, context=(contexts or {}).get(out.package, ""))
+        ctx = contexts.get(out.package, "") if contexts is not None else daily_context(conn, out.package, today)
+        req = prepare(out, batch=use_batch, context=ctx)
         if req is None:
             result.skipped_few_reviews.append(out.package)
         elif req.est_cost <= room:

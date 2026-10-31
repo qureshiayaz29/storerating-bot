@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from . import summaries
-from .card.render import Renderer, caption, card_html, daily_card
+from .card.render import Renderer, daily_caption, card_html, daily_card
 from .daily import anthropic_client, job_date
 from .db import JobRun, connect, job_run, log_exception
 from .fetch import AppToFetch, fetch_app, save
@@ -74,12 +74,13 @@ def run_on_demand(conn, tg: Telegram, client, run: JobRun, renderer_factory=Rend
                     if not out.ok:
                         raise RuntimeError(f"fetch failed: {out.error}")
                     if client is not None:
-                        req = summaries.prepare(out, batch=False, allow_first_run=True)
+                        req = summaries.prepare(out, batch=False, allow_first_run=True,
+                                                context=summaries.daily_context(conn, pkg, today))
                         if req is not None:
                             res = summaries.SummaryRun()
                             summaries.standard_call(conn, client, run, res, today, req, "on_demand", now)
                     d, complaints, praise = daily_card(conn, pkg, today)
-                    cap = caption(d, complaints, praise)
+                    cap = daily_caption(d, complaints, praise)
                     file_id = upload_card(conn, tg, pkg, "daily", today, renderer.render(card_html(d)), cap)
                     run.add("cards_rendered")
                     card = {"file_id": file_id, "caption": cap, "ref": today.isoformat()}
