@@ -209,7 +209,7 @@ def daily_caption(d: CardData, complaints: list[dict], praise: list[dict]) -> st
     """The Daily Update caption: rating, review mix, top complaints and praise, takeaway.
 
     Fits Telegram's 1,024 characters by dropping, in order: example lines, the 3rd complaint,
-    the 2nd praise, the star breakdown, the takeaway. Numbers are never cut mid-line.
+    the 2nd praise, the takeaway. The star breakdown and numbers always stay. Numbers are never cut mid-line.
     """
     parts: list[tuple[int, str]] = []    # (drop rank: higher goes first; 0 = never, text)
 
@@ -238,7 +238,7 @@ def daily_caption(d: CardData, complaints: list[dict], praise: list[dict]) -> st
         add(f"📝 <b>{'Latest ' if d.reviews_are_latest else ''}{d.new_reviews:,} {'reviews' if d.reviews_are_latest else 'new reviews'}</b>")
         if d.star_counts and sum(d.star_counts):
             total = sum(d.star_counts)
-            add(" · ".join(f"{s}★ {round(100 * n / total)}%" for s, n in enumerate(d.star_counts, 1)), 3)
+            add(" · ".join(f"{s}★ {round(100 * n / total)}%" for s, n in enumerate(d.star_counts, 1)))  # never dropped
     if complaints:
         add("")
         add("<b>😡 Top complaints</b>")

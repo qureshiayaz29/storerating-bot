@@ -153,3 +153,13 @@ def test_daily_caption_trims_examples_first_and_keeps_numbers():
 
 def test_visible_len_counts_like_telegram():
     assert visible_len("<b>a &amp; b</b> 😀") == len("a & b ") + 2
+
+
+def test_worst_case_keeps_star_breakdown_and_fits():
+    w = "W"
+    bad = [{"theme": w * 60, "share": 100, "status": "persisting", "since": "2026-09-01", "example": w * 120}] * 3
+    good = [{"theme": w * 60, "share": 100, "example": w * 120}] * 3
+    text = daily_caption(kite(name=w * 50, verdict=w * 120, released_days=365, new_reviews=99999,
+                              star_counts=[10, 10, 10, 10, 60]), bad, good)
+    assert visible_len(text) <= CAPTION_LIMIT and "1★ 10% · 2★ 10% · 3★ 10% · 4★ 10% · 5★ 60%" in text
+    assert "3. <b>" in text and "💡" in text
