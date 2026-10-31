@@ -84,11 +84,30 @@ def record_app_store(out_dir: Path, kind: str, key: str) -> None:
     print(f"app_store {kind}: {key} recorded ({len(pages)} pages)")
 
 
+def probe(label: str, url: str) -> None:
+    """Diagnostics: fetch a URL with our User-Agent and a browser one; report size and entry count."""
+    import urllib.request
+
+    agents = {"ours": "StoreRating/1.0 (+https://github.com/qureshiayaz29/storerating-bot)",
+              "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"}
+    for name, ua in agents.items():
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": ua})
+            with urllib.request.urlopen(req, timeout=30) as res:
+                raw = res.read()
+            count = raw.count(b'"im:rating"') + raw.count(b"<im:rating")
+            print(f"::notice title=probe {label} {name}::{url} → {len(raw)} bytes, {count} ratings, start {raw[:120]!r}")
+        except Exception as e:  # noqa: BLE001
+            print(f"::notice title=probe {label} {name}::{url} → {type(e).__name__}: {str(e)[:200]}")
+
+
 if __name__ == "__main__":
     out = Path(sys.argv[1])
     for arg in sys.argv[2:]:
         kind, package = arg.split("=", 1)
-        if package.startswith("ios:"):
+        if package.startswith("url:"):
+            probe(kind, package[4:])
+        elif package.startswith("ios:"):
             record_app_store(out, kind, package)
         else:
             record(out, kind, package)
