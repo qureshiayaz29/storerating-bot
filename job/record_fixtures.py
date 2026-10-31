@@ -63,10 +63,18 @@ def record_app_store(out_dir: Path, kind: str, key: str) -> None:
     (case / "lookup.json").write_bytes(_default_get(LOOKUP.format(id=k.store_id, cc=k.country)))
     pages = []
     for page in range(1, min(MAX_PAGES, 2) + 1):
+        url = REVIEWS.format(cc=k.country, page=page, id=k.store_id)
         try:
-            data = json.loads(_default_get(REVIEWS.format(cc=k.country, page=page, id=k.store_id)))
-        except Exception:  # noqa: BLE001 — past the last page
+            raw = _default_get(url)
+            data = json.loads(raw)
+        except Exception as e:  # noqa: BLE001 — past the last page
+            print(f"::notice title=app_store {kind} page {page}::{url} → {type(e).__name__}: {str(e)[:200]}")
             break
+        feed = data.get("feed") or {}
+        entry = feed.get("entry")
+        n = len(entry) if isinstance(entry, list) else (1 if entry else 0)
+        print(f"::notice title=app_store {kind} page {page}::{url} → {len(raw)} bytes, {n} entries, "
+              f"feed keys {sorted(feed)[:8]}, start {raw[:160]!r}")
         entries = (data.get("feed") or {}).get("entry") or []
         for e in entries if isinstance(entries, list) else [entries]:
             e.pop("author", None)
