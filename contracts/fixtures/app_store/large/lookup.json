@@ -1,0 +1,23 @@
+{
+  "resultCount": 1,
+  "results": [
+    {
+      "wrapperType": "software",
+      "kind": "software",
+      "trackId": 310633997,
+      "trackName": "WhatsApp Messenger",
+      "sellerName": "WhatsApp Inc.",
+      "artistName": "WhatsApp Inc.",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/310633997/100x100bb.jpg",
+      "artworkUrl512": "https://is1-ssl.mzstatic.com/image/thumb/310633997/512x512bb.jpg",
+      "version": "26.21.74",
+      "averageUserRating": 4.66543,
+      "userRatingCount": 1234567,
+      "fileSizeBytes": "312541184",
+      "currentVersionReleaseDate": "2026-10-27T17:24:38Z",
+      "releaseNotes": "Bug fixes and improvements.",
+      "bundleId": "net.whatsapp.WhatsApp",
+      "primaryGenreName": "Social Networking"
+    }
+  ]
+}

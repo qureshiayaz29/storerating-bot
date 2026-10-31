@@ -50,8 +50,37 @@ def record(out_dir: Path, kind: str, package: str) -> None:
     print(f"{kind}: {package} recorded ({len(page)} reviews)")
 
 
+def record_app_store(out_dir: Path, kind: str, key: str) -> None:
+    """Record Apple's raw responses for an App Key like ios:in:310633997 (reviewer names stripped)."""
+    from job.sources.app_store import LOOKUP, MAX_PAGES, REVIEWS, _default_get
+    from job.sources.base import parse_app_key
+
+    k = parse_app_key(key)
+    case = out_dir / "app_store" / kind
+    case.mkdir(parents=True, exist_ok=True)
+    meta = {"package": k.store_id, "country": k.country, "kind": kind, "synthetic": False,
+            "recorded_at": datetime.now(timezone.utc).isoformat()}
+    (case / "lookup.json").write_bytes(_default_get(LOOKUP.format(id=k.store_id, cc=k.country)))
+    pages = []
+    for page in range(1, min(MAX_PAGES, 2) + 1):
+        try:
+            data = json.loads(_default_get(REVIEWS.format(cc=k.country, page=page, id=k.store_id)))
+        except Exception:  # noqa: BLE001 — past the last page
+            break
+        entries = (data.get("feed") or {}).get("entry") or []
+        for e in entries if isinstance(entries, list) else [entries]:
+            e.pop("author", None)
+        pages.append(data)
+    (case / "reviews_pages.json").write_text(json.dumps(pages, indent=2, ensure_ascii=False) + "\n")
+    (case / "case.json").write_text(json.dumps(meta, indent=2) + "\n")
+    print(f"app_store {kind}: {key} recorded ({len(pages)} pages)")
+
+
 if __name__ == "__main__":
     out = Path(sys.argv[1])
     for arg in sys.argv[2:]:
         kind, package = arg.split("=", 1)
-        record(out, kind, package)
+        if package.startswith("ios:"):
+            record_app_store(out, kind, package)
+        else:
+            record(out, kind, package)

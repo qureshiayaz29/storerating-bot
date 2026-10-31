@@ -32,7 +32,7 @@ Rejected approaches:
 - **Admin** — Ayaz; identified by `ADMIN_CHAT_ID`.
 - **Admin Command** — `/stats`, `/budget`, `/setbudget`. Works only for the Admin.
 - **Admin Check** — the single function `isAdmin(update)` in the Webhook Function. True only when `message.from.id` equals `ADMIN_CHAT_ID` and the chat type is `private`.
-- **App** — a Google Play listing identified by its package name (e.g. `com.whatsapp`).
+- **App** — one store listing in one country, identified by its App Key: `play:<country>:<package>` or `ios:<country>:<track id>` (e.g. `play:in:com.whatsapp`). See [docs/plans/01-app-store.md](docs/plans/01-app-store.md) for the country rules.
 - **Watchlist** — the set of Apps a User follows. Maximum 10 Apps.
 - **Watcher** — a User who has a given App in their Watchlist.
 - **Web Project** — the Vercel project `storerating-bot`, built from `web/` (Astro with the Vercel adapter). Holds the Webhook Function, the Stats API and the Dashboard. Deploys on every push to `main`.
@@ -332,6 +332,9 @@ Waiting on the Admin (secrets and accounts):
 - Step 149: add `storerating.ayazqureshi.com` to the Vercel project (the connector cannot write project settings).
 - Run the **Bot setup** workflow, then **Record fixtures** to replace the synthetic Contract Fixtures with real recordings.
 - Phase 14: launch.
+
+
+Update 31 Oct 2026: App Store support and per-app country are built ([plan](docs/plans/01-app-store.md)). Existing Apps became `play:us:…`; Users move them with 🌍 in `/apps`. App Store Contract Fixtures are synthetic until recorded with the Record fixtures workflow.
 
 ## Steps
 

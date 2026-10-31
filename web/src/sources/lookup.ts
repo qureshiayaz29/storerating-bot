@@ -36,20 +36,20 @@ export class NodeScraperLookup implements LookupSource {
     private readonly country = 'us',
   ) {}
 
-  async getListing(pkg: string): Promise<Listing> {
+  async getListing(pkg: string, country?: string): Promise<Listing> {
     let raw: NodeApp;
     try {
       const fn = this.appFn ?? (await defaultAppFn());
-      raw = await fn({ appId: pkg, lang: this.lang, country: this.country });
+      raw = await fn({ appId: pkg, lang: this.lang, country: country ?? this.country });
     } catch (e) {
       throw new SourceError(reasonFor(e), pkg, String((e as Error)?.message ?? e).slice(0, 300));
     }
     return validateListing(toListing(pkg, raw));
   }
 
-  async exists(pkg: string): Promise<boolean> {
+  async exists(pkg: string, country?: string): Promise<boolean> {
     try {
-      await this.getListing(pkg);
+      await this.getListing(pkg, country);
       return true;
     } catch (e) {
       if (e instanceof SourceError && e.reason === 'not_found') return false;
@@ -103,4 +103,95 @@ export function reasonFor(e: unknown): Reason {
   if (err?.status === 403 || /\b403\b|forbidden/i.test(msg)) return 'blocked';
   if (e instanceof TypeError || e instanceof RangeError) return 'parse_failed';
   return 'unavailable';
+}
+
+// --- App Store -------------------------------------------------------------------
+// Apple's public iTunes Lookup API. Same Listing as job/sources/app_store.py for the
+// same response — enforced by contracts/fixtures/app_store.
+
+export type FetchFn = (url: string) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+
+interface ItunesApp {
+  trackId?: number;
+  trackName?: string;
+  sellerName?: string | null;
+  artistName?: string | null;
+  artworkUrl512?: string | null;
+  artworkUrl100?: string | null;
+  version?: string | null;
+  averageUserRating?: number | null;
+  userRatingCount?: number | null;
+  fileSizeBytes?: string | null;
+  currentVersionReleaseDate?: string | null;
+  releaseNotes?: string | null;
+}
+
+export class AppStoreLookup implements LookupSource {
+  readonly name = 'itunes_api';
+
+  constructor(
+    private readonly fetchFn: FetchFn = (url) => fetch(url, { headers: { accept: 'application/json' } }),
+    private readonly country = 'us',
+  ) {}
+
+  async getListing(id: string, country?: string): Promise<Listing> {
+    const cc = (country ?? this.country).toLowerCase();
+    let body: { results?: ItunesApp[] };
+    try {
+      const res = await this.fetchFn(`https://itunes.apple.com/lookup?id=${encodeURIComponent(id)}&country=${cc}&entity=software`);
+      if (!res.ok) {
+        const reason: Reason = res.status === 404 ? 'not_found' : res.status === 429 ? 'rate_limited' : res.status === 403 ? 'blocked' : 'unavailable';
+        throw new SourceError(reason, id, `HTTP ${res.status}`);
+      }
+      body = (await res.json()) as { results?: ItunesApp[] };
+    } catch (e) {
+      if (e instanceof SourceError) throw e;
+      throw new SourceError(e instanceof SyntaxError ? 'parse_failed' : 'unavailable', id, String((e as Error)?.message ?? e).slice(0, 300));
+    }
+    const app = (body.results ?? []).find((r) => String(r.trackId) === String(id));
+    if (!app) throw new SourceError('not_found', id, `not on the App Store in ${cc.toUpperCase()}`);
+    return validateListing(toAppStoreListing(app));
+  }
+
+  async exists(id: string, country?: string): Promise<boolean> {
+    try {
+      await this.getListing(id, country);
+      return true;
+    } catch (e) {
+      if (e instanceof SourceError && e.reason === 'not_found') return false;
+      throw e;
+    }
+  }
+}
+
+export function toAppStoreListing(app: ItunesApp): Listing {
+  if (!app.trackName || app.trackId == null) throw new SourceError('parse_failed', String(app.trackId ?? '?'), 'missing trackName');
+  return {
+    store: 'app_store',
+    package: String(app.trackId),
+    name: app.trackName,
+    developer: app.sellerName || app.artistName || null,
+    icon_url: app.artworkUrl512 || app.artworkUrl100 || null,
+    version: app.version || null,
+    rating: app.averageUserRating == null ? null : Math.round(app.averageUserRating * 100) / 100,
+    review_count: app.userRatingCount == null ? null : Math.trunc(app.userRatingCount),
+    rating_histogram: null,
+    installs_tier: null,
+    size: sizeLabel(app.fileSizeBytes),
+    updated_at: app.currentVersionReleaseDate ? new Date(app.currentVersionReleaseDate).toISOString().replace(/\.\d{3}Z$/, '+00:00') : null,
+    release_notes: app.releaseNotes || null,
+  };
+}
+
+/** Matches Python: round to whole MB, or one decimal GB from 1,000 MB. */
+function sizeLabel(bytes: string | null | undefined): string | null {
+  if (!bytes) return null;
+  const mb = Number(bytes) / 1_000_000;
+  return mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${pyRound(mb)} MB`;
+}
+
+/** Python's round(): banker's rounding on exact halves. */
+function pyRound(x: number): number {
+  const r = Math.round(x);
+  return Math.abs(x % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r;
 }

@@ -1,0 +1,15 @@
+{
+  "store": "app_store",
+  "package": "310633997",
+  "name": "WhatsApp Messenger",
+  "developer": "WhatsApp Inc.",
+  "icon_url": "https://is1-ssl.mzstatic.com/image/thumb/310633997/512x512bb.jpg",
+  "version": "26.21.74",
+  "rating": 4.67,
+  "review_count": 1234567,
+  "rating_histogram": null,
+  "installs_tier": null,
+  "size": "313 MB",
+  "updated_at": "2026-10-27T17:24:38+00:00",
+  "release_notes": "Bug fixes and improvements."
+}

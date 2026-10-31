@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from . import budget, summaries
 from .card.render import CardData, Renderer, daily_caption, card_html
+from .sources.base import parse_app_key
 from .db import JobRun, connect, job_run, log_error, log_exception
 from .send import upload_card
 from .telegram import Telegram
@@ -147,6 +148,7 @@ def report_card(conn, package: str, p: Period, themes: summaries.Summary | None)
     counts = [s["new_star_counts"] for s in snaps if s["new_star_counts"]]
     stars = [sum(c[i] for c in counts) for i in range(5)] if counts else None
     d = CardData(period="Monthly" if p.kind == "monthly" else "Quarterly", period_label=p.label,
+                 store=parse_app_key(package).badge,
                  name=app["name"] or package, developer=app["developer"], version=last["version"] if last else None,
                  icon_url=app["icon_url"], rating=rating, delta=delta, subline=sub, stats=stats,
                  chart_title=chart_title, points=points, x_labels=x_labels, releases=releases, verdict=verdict,

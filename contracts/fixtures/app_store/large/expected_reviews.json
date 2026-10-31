@@ -1,0 +1,26 @@
+[
+  {
+    "id": "11000000001",
+    "stars": 1,
+    "text": "Chats not loading. Since the update my chats take ages to load.",
+    "thumbs_up": 12,
+    "app_version": "26.21.74",
+    "created_at": "2026-10-30T16:12:44+00:00"
+  },
+  {
+    "id": "11000000002",
+    "stars": 5,
+    "text": "Great. Great app for calls",
+    "thumbs_up": 3,
+    "app_version": "26.21.74",
+    "created_at": "2026-10-30T15:01:02+00:00"
+  },
+  {
+    "id": "11000000003",
+    "stars": 4,
+    "text": "Good. Works well but backups are slow",
+    "thumbs_up": 0,
+    "app_version": "26.21.70",
+    "created_at": "2026-10-30T05:10:00+00:00"
+  }
+]

@@ -1,14 +1,31 @@
 // Bot logic. Pure functions of (update, deps) so they can be tested with fakes.
 
 import { createHash } from 'node:crypto';
-import { parsePackage, SourceError, type LookupSource } from '../sources/contract';
+import {
+  appKey,
+  countryName,
+  detectStore,
+  isCountryCode,
+  parseAppInput,
+  parseAppKey,
+  SourceError,
+  storeBadge,
+  storeName,
+  type AppInput,
+  type LookupSource,
+  type Store,
+} from '../sources/contract';
+import { timezoneCountry } from '../lib/timezones';
 import { escapeHtml, type Keyboard, type Telegram } from '../lib/telegram';
-import type { Repo, TgCallbackQuery, TgMessage, TgUpdate, UserRow, WatchRow } from './types';
+import type { PendingReply, Repo, TgCallbackQuery, TgMessage, TgUpdate, UserRow, WatchRow } from './types';
 
 export interface Deps {
   repo: Repo;
   tg: Telegram;
+  /** Google Play lookup. */
   lookup: LookupSource;
+  /** App Store lookup. Absent in tests that only use Google Play. */
+  appStoreLookup?: LookupSource;
   adminChatId: number;
   now?: () => Date;
   /** Starts an On-demand Run (GitHub repository_dispatch). Absent in tests that do not need it. */
@@ -20,19 +37,31 @@ export interface Deps {
 const DEFAULTS = { watchlistMax: 10, actionLimitPerHour: 20, newAppQuota: 5, onDemandBudget: 200 };
 const DEBOUNCE_MS = 60_000;
 const CARD_FRESH_MS = 30 * 60 * 60 * 1000;
+const PENDING_MS = 10 * 60 * 1000;
+const AVAILABILITY_DEFAULT = 'us,gb,in';
 const ADMIN_COMMANDS = new Set(['/stats', '/budget', '/setbudget', '/login']);
 
 export const TEXT = {
   welcome:
     '👋 <b>StoreRating</b> watches Google Play apps and tells you what changed: rating moves, new releases, top complaints and 1★ spikes.\n\n' +
-    'Send /add with a Play Store link or package name to start, e.g. <code>/add com.whatsapp</code>\n\n' +
+    'Send /add with a Play Store or App Store link to start, e.g. <code>/add com.whatsapp</code>\n\n' +
     'You get one update per app each day at 11:00, only when something changed.\n\n' +
     'We store your chat ID, timezone, settings and watchlist. Nothing else. /delete removes it all.',
   help: "I don't know that command. Try /add, /apps, /pause, /resume, /settings or /delete.",
-  addUsage: 'Send a Play Store link or package name, e.g. <code>/add com.whatsapp</code>',
-  addInvalid: "That doesn't look like a Play Store link or package name. Example: <code>/add com.whatsapp</code>",
-  notFound: (pkg: string) => `Couldn't find <code>${escapeHtml(pkg)}</code> on Google Play. Check the link and try again.`,
-  storeDown: "Couldn't reach Google Play right now. Please try again in a few minutes.",
+  addUsage:
+    'Send a Play Store or App Store link, a package name like <code>/add com.whatsapp</code>, or an App Store ID like <code>/add 310633997</code>',
+  addInvalid:
+    "That doesn't look like an app link or ID. Send a Play Store or App Store link, a package name like <code>com.whatsapp</code>, or an App Store ID like <code>310633997</code>.",
+  notFound: (id: string, store: Store = 'google_play') =>
+    `Couldn't find <code>${escapeHtml(id)}</code> on ${storeName(store)}. Check the link and try again.`,
+  storeDown: "Couldn't reach the store right now. Please try again in a few minutes.",
+  countryQuestion: (store: Store) =>
+    `🌍 Which country's ${storeName(store)} should I track this app in? Send a two-letter code, like IN, US or GB.`,
+  badCode: (code: string) =>
+    `<b>${escapeHtml(code.toUpperCase())}</b> isn't a country code I know. Send two letters, like IN, US or GB.`,
+  notInCountry: (name: string, store: Store, country: string, found: string[]) =>
+    `<b>${escapeHtml(name)}</b> isn't on ${storeName(store)} in ${escapeHtml(countryName(country))}. ` +
+    `It's available in ${found.map((c) => c.toUpperCase()).join(', ')}. Send one of these codes, or another country code.`,
   tooMany: 'Too many changes, try again in a few minutes.',
   limitReached: (max: number) => `You're watching ${max} apps, the maximum. Remove one to add another:`,
   alreadyWatching: (name: string) => `You're already watching <b>${escapeHtml(name)}</b>.`,
@@ -77,6 +106,14 @@ async function handleMessage(msg: TgMessage, deps: Deps): Promise<void> {
   if (!text) return;
 
   const { created } = await repo.touchUser(chatId, msg.from?.language_code);
+
+  // A Pending Reply (country code) is answered by plain text; any command or expiry clears it.
+  const user = await repo.getUser(chatId);
+  const now = deps.now?.() ?? new Date();
+  const pending = user?.pending && new Date(user.pending.expires_at) > now ? user.pending : null;
+  if (user?.pending && (!pending || text.startsWith('/'))) await repo.setPending(chatId, null);
+  if (pending && !text.startsWith('/')) return answerPending(chatId, text, pending, deps);
+
   const [rawCmd, ...rest] = text.split(/\s+/);
   const cmd = rawCmd.toLowerCase().replace(/@\w+$/, ''); // "/add@storeratingbot" → "/add"
   const arg = rest.join(' ');
@@ -126,85 +163,215 @@ async function handleMessage(msg: TgMessage, deps: Deps): Promise<void> {
       ]);
   }
 
-  // A pasted Play Store link without a command is an /add.
-  if (!cmd.startsWith('/') && /play\.google\.com|market:\/\//.test(text)) return addApp(chatId, text, deps);
+  // A pasted store link without a command is an /add.
+  if (!cmd.startsWith('/') && /play\.google\.com|market:\/\/|apps\.apple\.com|itunes\.apple\.com/.test(text)) {
+    return addApp(chatId, text, deps);
+  }
   await repo.logEvent(chatId, 'unknown_command', { command: cmd.startsWith('/') ? cmd : '(text)' });
   await tg.sendMessage(chatId, TEXT.help);
 }
 
 // --- /add ---------------------------------------------------------------
 
-async function addApp(chatId: number, input: string, deps: Deps): Promise<void> {
-  const { repo, tg, lookup } = deps;
+function lookupFor(store: Store, deps: Deps): LookupSource {
+  if (store === 'app_store') {
+    if (!deps.appStoreLookup) throw new SourceError('unavailable', '', 'App Store lookup not configured');
+    return deps.appStoreLookup;
+  }
+  return deps.lookup;
+}
+
+function expiresAt(deps: Deps): string {
+  return new Date((deps.now?.() ?? new Date()).getTime() + PENDING_MS).toISOString();
+}
+
+/** Country rules: the link's country, then the timezone the User set, then their saved country. */
+function defaultCountry(parsed: AppInput, user: UserRow | null): string | null {
+  return parsed.country ?? (user?.timezone_set ? timezoneCountry(user.timezone) : null) ?? user?.saved_country ?? null;
+}
+
+async function addApp(chatId: number, input: string, deps: Deps, opts: { country?: string } = {}): Promise<void> {
+  const { repo, tg } = deps;
   const now = deps.now?.() ?? new Date();
-  const pkg = parsePackage(input);
-  if (!pkg) {
+  const parsed = parseAppInput(input);
+  if (!parsed) {
     await repo.logEvent(chatId, 'add_app_failed', { reason: 'invalid_input' });
     return tg.sendMessage(chatId, TEXT.addInvalid);
   }
   if (await actionLimited(chatId, deps, now)) return;
 
+  const user = await repo.getUser(chatId);
+  const country = opts.country ?? defaultCountry(parsed, user);
+  if (!country) {
+    await repo.setPending(chatId, { kind: 'add_country', input, save: true, expires_at: expiresAt(deps) });
+    await repo.logEvent(chatId, 'country_asked', { store: parsed.store });
+    return tg.sendMessage(chatId, TEXT.countryQuestion(parsed.store));
+  }
+  const key = appKey(parsed.store, country, parsed.id);
+
   const list = await repo.watchlist(chatId);
-  const existing = list.find((w) => w.package === pkg);
-  if (existing) return tg.sendMessage(chatId, TEXT.alreadyWatching(existing.name ?? pkg));
+  const existing = list.find((w) => w.package === key);
+  if (existing) return tg.sendMessage(chatId, TEXT.alreadyWatching(existing.name ?? parsed.id));
 
   const max = await configInt(repo, 'watchlist_max_apps', DEFAULTS.watchlistMax);
   if (list.length >= max) {
-    await repo.logEvent(chatId, 'add_app_failed', { reason: 'cap', package: pkg });
+    await repo.logEvent(chatId, 'add_app_failed', { reason: 'cap', package: key });
     return tg.sendMessage(chatId, TEXT.limitReached(max), removeKeyboard(list));
   }
 
-  let app = await repo.getApp(pkg);
+  let app = await repo.getApp(key);
   let details = '';
   if (!app) {
     try {
-      const listing = await lookup.getListing(pkg);
-      await repo.upsertApp({
-        package: listing.package,
-        name: listing.name,
-        developer: listing.developer,
-        icon_url: listing.icon_url,
-      });
-      app = { package: listing.package, name: listing.name };
+      const listing = await lookupFor(parsed.store, deps).getListing(parsed.id, country);
+      await repo.upsertApp({ package: key, store: parsed.store, name: listing.name, developer: listing.developer, icon_url: listing.icon_url });
+      app = { package: key, name: listing.name };
       details = listingLine(listing);
     } catch (e) {
       if (e instanceof SourceError && e.reason === 'not_found') {
-        await repo.logEvent(chatId, 'add_app_failed', { reason: 'not_found', package: pkg });
-        return tg.sendMessage(chatId, TEXT.notFound(pkg));
+        return offerCountries(chatId, parsed, country, { kind: 'add_country', input, save: false }, deps);
       }
-      const err = e as Error;
-      await repo.logError('store_source', pkg, err.message ?? String(e), err.stack);
-      await repo.logEvent(chatId, 'add_app_failed', {
-        reason: e instanceof SourceError ? e.reason : 'error',
-        package: pkg,
-      });
-      return tg.sendMessage(chatId, TEXT.storeDown);
+      return storeFailed(chatId, key, e, deps);
     }
   }
 
   await repo.addWatch(chatId, app.package);
   await repo.logEvent(chatId, 'add_app', { package: app.package });
+  const head = `✅ Added <b>${escapeHtml(app.name ?? parsed.id)}</b> · ${storeBadge(key)}${details ? `\n${details}` : ''}`;
+  return sendFirstUpdate(chatId, app.package, head, deps, now);
+}
+
+/** After an add or a Country Change: send today's Card if one exists, else start an On-demand Run. */
+async function sendFirstUpdate(chatId: number, key: string, head: string, deps: Deps, now: Date): Promise<void> {
+  const { repo, tg } = deps;
   const user = await repo.getUser(chatId);
   const when = user ? `${user.digest_time} (${user.timezone})` : '11:00';
-  const head = `✅ Watching <b>${escapeHtml(app.name ?? app.package)}</b>${details ? `\n${details}` : ''}`;
+  const keyboard: Keyboard = [[{ text: '🌍 Change country', callback_data: `c:${pkgKey(key)}` }]];
 
   // Today's Card already exists (someone else watches this App): send it now, at no cost.
-  const card = await repo.latestCard(app.package, new Date(now.getTime() - CARD_FRESH_MS));
+  const card = await repo.latestCard(key, new Date(now.getTime() - CARD_FRESH_MS));
   if (card) {
-    await tg.sendMessage(chatId, `${head}\n\nHere's today's update. Next one at ${escapeHtml(when)}. Manage with /apps.`);
+    await tg.sendMessage(chatId, `${head}\n\nHere's today's update. Next one at ${escapeHtml(when)}. Manage with /apps.`, keyboard);
     await tg.sendPhoto(chatId, card.file_id, card.caption);
-    await repo.recordDelivery(chatId, app.package, 'daily', card.period_start, 'sent');
-    await repo.logEvent(chatId, 'update_sent', { package: app.package, instant: true });
+    await repo.recordDelivery(chatId, key, 'daily', card.period_start, 'sent');
+    await repo.logEvent(chatId, 'update_sent', { package: key, instant: true });
     return;
   }
-
-  const startedRun = await startOnDemand(chatId, app.package, deps, now);
+  const startedRun = await startOnDemand(chatId, key, deps, now);
   await tg.sendMessage(
     chatId,
     startedRun
-      ? `${head}\n\n⏳ Full report coming in a few minutes. After that, daily at ${escapeHtml(when)}. Manage with /apps.`
+      ? `${head}\n\n⏳ Your first update arrives in a few minutes. After that, daily at ${escapeHtml(when)}. Manage with /apps.`
       : `${head}\n\nFirst update at ${escapeHtml(when)}. Manage with /apps.`,
+    keyboard,
   );
+}
+
+async function storeFailed(chatId: number, key: string, e: unknown, deps: Deps): Promise<void> {
+  const err = e as Error;
+  await deps.repo.logError('store_source', key, err?.message ?? String(e), err?.stack);
+  await deps.repo.logEvent(chatId, 'add_app_failed', { reason: e instanceof SourceError ? e.reason : 'error', package: key });
+  return deps.tg.sendMessage(chatId, TEXT.storeDown);
+}
+
+/** Availability Check: the App is missing in `country`. Offer the countries where it exists, or say not found. */
+async function offerCountries(
+  chatId: number,
+  parsed: { store: Store; id: string },
+  country: string,
+  next: { kind: 'add_country'; input: string; save: boolean } | { kind: 'change_country'; app_key: string },
+  deps: Deps,
+  skip: string[] = [],
+): Promise<void> {
+  const { repo, tg } = deps;
+  const user = await repo.getUser(chatId);
+  const configured = ((await repo.getConfig('availability_countries')) ?? AVAILABILITY_DEFAULT).split(',');
+  const tz = user?.timezone_set ? timezoneCountry(user.timezone) : null;
+  const candidates = [...new Set([...configured, ...(tz ? [tz] : [])].map((c) => c.trim().toLowerCase()))].filter(
+    (c) => isCountryCode(c) && c !== country && !skip.includes(c),
+  );
+  const found: string[] = [];
+  let name: string | null = null;
+  for (const c of candidates) {
+    try {
+      const l = await lookupFor(parsed.store, deps).getListing(parsed.id, c);
+      found.push(c);
+      name ??= l.name;
+    } catch (e) {
+      if (!(e instanceof SourceError && e.reason === 'not_found')) break; // store trouble: stop checking
+    }
+  }
+  if (!found.length) {
+    await repo.logEvent(chatId, 'add_app_failed', { reason: 'not_found', package: appKey(parsed.store, country, parsed.id) });
+    return tg.sendMessage(chatId, TEXT.notFound(parsed.id, parsed.store));
+  }
+  await repo.setPending(chatId, { ...next, expires_at: expiresAt(deps) } as PendingReply);
+  await repo.logEvent(chatId, 'not_in_country', { store: parsed.store, country, found });
+  return tg.sendMessage(chatId, TEXT.notInCountry(name ?? parsed.id, parsed.store, country, found));
+}
+
+/** A plain-text reply to the Country Question or a Country Change. */
+async function answerPending(chatId: number, text: string, pending: PendingReply, deps: Deps): Promise<void> {
+  const { repo, tg } = deps;
+  const code = text.trim().toLowerCase();
+  if (!isCountryCode(code)) {
+    if (code.length > 2 && detectStore(text)) {
+      await repo.setPending(chatId, null); // they sent a new app instead
+      return addApp(chatId, text, deps);
+    }
+    await repo.logEvent(chatId, 'country_invalid', { kind: pending.kind });
+    return tg.sendMessage(chatId, TEXT.badCode(text.trim().slice(0, 12)));
+  }
+  await repo.setPending(chatId, null);
+  if (pending.kind === 'add_country') {
+    if (pending.save) await repo.setSavedCountry(chatId, code);
+    return addApp(chatId, pending.input, deps, { country: code });
+  }
+  return changeCountry(chatId, pending.app_key, code, deps);
+}
+
+// --- Country Change ------------------------------------------------------
+
+async function askCountryChange(chatId: number, target: WatchRow, deps: Deps): Promise<void> {
+  const k = parseAppKey(target.package);
+  await deps.repo.setPending(chatId, { kind: 'change_country', app_key: target.package, expires_at: expiresAt(deps) });
+  await deps.tg.sendMessage(
+    chatId,
+    `🌍 Which country should I track <b>${escapeHtml(target.name ?? k.id)}</b> in? It's ${escapeHtml(countryName(k.country))} now. ` +
+      'Send a two-letter code, like IN, US or GB.',
+  );
+}
+
+async function changeCountry(chatId: number, oldKey: string, code: string, deps: Deps): Promise<void> {
+  const { repo, tg } = deps;
+  const now = deps.now?.() ?? new Date();
+  const list = await repo.watchlist(chatId);
+  const target = list.find((w) => w.package === oldKey);
+  if (!target) return tg.sendMessage(chatId, 'That app is no longer in your list.');
+  const k = parseAppKey(oldKey);
+  const name = target.name ?? k.id;
+  if (k.country === code) return tg.sendMessage(chatId, `<b>${escapeHtml(name)}</b> is already tracked in ${escapeHtml(countryName(code))}.`);
+  const newKey = appKey(k.store, code, k.id);
+  if (list.some((w) => w.package === newKey)) {
+    return tg.sendMessage(chatId, `You already watch <b>${escapeHtml(name)}</b> in ${escapeHtml(countryName(code))}.`);
+  }
+  if (!(await repo.getApp(newKey))) {
+    try {
+      const listing = await lookupFor(k.store, deps).getListing(k.id, code);
+      await repo.upsertApp({ package: newKey, store: k.store, name: listing.name, developer: listing.developer, icon_url: listing.icon_url });
+    } catch (e) {
+      if (e instanceof SourceError && e.reason === 'not_found') {
+        return offerCountries(chatId, { store: k.store, id: k.id }, code, { kind: 'change_country', app_key: oldKey }, deps, [k.country]);
+      }
+      return storeFailed(chatId, newKey, e, deps);
+    }
+  }
+  await repo.moveWatch(chatId, oldKey, newKey);
+  await repo.logEvent(chatId, 'change_country', { from: oldKey, to: newKey });
+  const head =
+    `🌍 <b>${escapeHtml(name)}</b> moved from ${storeBadge(oldKey)} to ${storeBadge(newKey)}. ` +
+    `Ratings, reviews and trends now come from ${escapeHtml(countryName(code))}; the trend starts fresh today.`;
+  return sendFirstUpdate(chatId, newKey, head, deps, now);
 }
 
 /** Queue an On-demand Run within the New-App Quota and On-demand Budget. Returns false when skipped. */
@@ -276,19 +443,23 @@ async function appsView(chatId: number, deps: Deps): Promise<{ text: string; key
   ]);
   if (!list.length) return { text: TEXT.empty };
   const header = `📱 <b>Your apps (${list.length}/${max})</b> · ${user?.paused ? '🔕 Notifications paused' : '🔔 Notifications on'}`;
-  const lines = list.map((w) => `${w.paused ? '🔕' : '🔔'} ${escapeHtml(w.name ?? w.package)}`);
+  const label = (w: WatchRow) => w.name ?? parseAppKey(w.package).id;
+  const lines = list.map((w) => `${w.paused ? '🔕' : '🔔'} ${escapeHtml(label(w))} · ${storeBadge(w.package)}`);
   const keyboard: Keyboard = list.map((w) => [
     w.paused
-      ? { text: `▶️ ${short(w.name ?? w.package)}`, callback_data: `r:${pkgKey(w.package)}` }
-      : { text: `⏸ ${short(w.name ?? w.package)}`, callback_data: `p:${pkgKey(w.package)}` },
-    { text: '🗑 Remove', callback_data: `x:${pkgKey(w.package)}` },
+      ? { text: `▶️ ${short(label(w), 20)}`, callback_data: `r:${pkgKey(w.package)}` }
+      : { text: `⏸ ${short(label(w), 20)}`, callback_data: `p:${pkgKey(w.package)}` },
+    { text: `🌍 ${parseAppKey(w.package).country.toUpperCase()}`, callback_data: `c:${pkgKey(w.package)}` },
+    { text: '🗑', callback_data: `x:${pkgKey(w.package)}` },
   ]);
   keyboard.push([user?.paused ? { text: '▶️ Resume all', callback_data: 'ra' } : { text: '⏸ Pause all', callback_data: 'pa' }]);
   return { text: `${header}\n\n${lines.join('\n')}`, keyboard };
 }
 
 function removeKeyboard(list: WatchRow[]): Keyboard {
-  return list.map((w) => [{ text: `🗑 ${short(w.name ?? w.package)}`, callback_data: `x:${pkgKey(w.package)}` }]);
+  return list.map((w) => [
+    { text: `🗑 ${short(w.name ?? parseAppKey(w.package).id)} · ${storeBadge(w.package)}`, callback_data: `x:${pkgKey(w.package)}` },
+  ]);
 }
 
 function short(s: string, max = 24): string {
@@ -324,9 +495,12 @@ async function handleCallback(q: TgCallbackQuery, deps: Deps): Promise<void> {
   const list = await repo.watchlist(chatId);
   const target = list.find((w) => pkgKey(w.package) === key);
   if (!target) return refresh(chatId, msg.message_id, q.id, deps, 'That app is no longer in your list');
-  const name = target.name ?? target.package;
+  const name = target.name ?? parseAppKey(target.package).id;
 
   switch (action) {
+    case 'c':
+      await askCountryChange(chatId, target, deps);
+      return tg.answerCallback(q.id);
     case 'p':
     case 'r':
       await repo.setWatchPaused(chatId, target.package, action === 'p');
@@ -382,10 +556,18 @@ async function settings(chatId: number, arg: string, deps: Deps): Promise<void> 
     chatId,
     `⚙️ <b>Settings</b>\n` +
       `Daily update: ${user.digest_time}\n` +
-      `Timezone: ${escapeHtml(user.timezone)}\n` +
+      `Timezone: ${escapeHtml(user.timezone)}${user.timezone_set ? '' : ' (default)'}\n` +
+      `Country for new apps: ${escapeHtml(newAppCountry(user))}\n` +
       `Notifications: ${user.paused ? 'paused' : 'on'}\n\n` +
       `Change with <code>/settings time 09:30</code> or <code>/settings tz Europe/London</code>`,
   );
+}
+
+function newAppCountry(user: UserRow): string {
+  const tz = user.timezone_set ? timezoneCountry(user.timezone) : null;
+  if (tz) return `${countryName(tz)} (from your timezone)`;
+  if (user.saved_country) return countryName(user.saved_country);
+  return "taken from each app's link, or I'll ask";
 }
 
 export function isTimeZone(tz: string): boolean {

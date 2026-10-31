@@ -21,6 +21,33 @@ Reason = Literal["not_found", "rate_limited", "blocked", "parse_failed", "unavai
 REASONS: tuple[Reason, ...] = ("not_found", "rate_limited", "blocked", "parse_failed", "unavailable")
 
 
+STORES = ("google_play", "app_store")
+_PREFIX = {"google_play": "play", "app_store": "ios"}
+
+
+@dataclass(frozen=True)
+class AppKey:
+    """An App Key: `play:<country>:<package>` or `ios:<country>:<track id>`."""
+    store: str
+    country: str
+    store_id: str
+
+    def __str__(self) -> str:
+        return f"{_PREFIX[self.store]}:{self.country}:{self.store_id}"
+
+    @property
+    def badge(self) -> str:
+        return f"{'Google Play' if self.store == 'google_play' else 'App Store'} · {self.country.upper()}"
+
+
+def parse_app_key(key: str) -> AppKey:
+    """Legacy keys without a prefix are US Play packages (how they were fetched)."""
+    parts = key.split(":", 2)
+    if len(parts) == 3 and parts[0] in ("play", "ios"):
+        return AppKey("google_play" if parts[0] == "play" else "app_store", parts[1], parts[2])
+    return AppKey("google_play", "us", key)
+
+
 class SourceError(Exception):
     """The only exception a Store Source adapter may raise."""
 
@@ -82,13 +109,14 @@ class Review:
 class StoreSource(Protocol):
     name: str
 
-    def get_listing(self, package: str) -> Listing: ...
+    def get_listing(self, package: str, country: str = "us") -> Listing: ...
 
-    def get_reviews(self, package: str, since_id: str | None = None, limit: int = 500) -> list[Review]:
+    def get_reviews(self, package: str, since_id: str | None = None, limit: int = 500,
+                    country: str = "us") -> list[Review]:
         """Newest first. Stops at since_id (exclusive) or after limit reviews."""
         ...
 
-    def exists(self, package: str) -> bool: ...
+    def exists(self, package: str, country: str = "us") -> bool: ...
 
 
 @lru_cache(maxsize=None)

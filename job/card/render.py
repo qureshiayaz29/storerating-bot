@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
+from ..sources.base import parse_app_key
+
 W, H = 1200, 630
 CAPTION_LIMIT = 1024
 BOT_NAME = "StoreRating"
@@ -115,7 +117,8 @@ def card_html(d: CardData) -> str:
                     for v, l in d.stats[:3])
     chips = "".join(f'<div class="chip {"good" if k == "good" else "bad"}"><span class="dot"></span>{e(t)}</div>'
                     for k, t in d.chips[:3])
-    sub = " · ".join(x for x in (d.developer, f"v{d.version}" if d.version else None) if x)
+    version = f"v{d.version}" if d.version and d.version != VARIES else None
+    sub = " · ".join(x for x in (d.store, d.developer, version) if x)
     muted = f" <span>{e(d.verdict_muted)}</span>" if d.verdict_muted else ""
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -324,6 +327,7 @@ def daily_card(conn, package: str, today: date) -> tuple[CardData, list[dict], l
     d = CardData(
         period="Daily", period_label=f"{today.day} {today:%b %Y}", name=app["name"] or package,
         developer=app["developer"], version=cur.get("version"), icon_url=app["icon_url"], rating=rating,
+        store=parse_app_key(package).badge,
         delta=delta, subline="vs yesterday" + (f" · {n:,} new reviews" if n else ""), stats=stats,
         chart_title="last 30 days", points=points,
         x_labels=[(0, f"{start.day} {start:%b}"), (14, f"{days[14].day} {days[14]:%b}"), (29, "Today")],

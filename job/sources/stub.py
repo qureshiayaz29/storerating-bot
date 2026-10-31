@@ -29,11 +29,12 @@ class StubAdapter:
             raise SourceError("not_found", package, "no stub fixture")
         return case
 
-    def get_listing(self, package: str) -> Listing:
+    def get_listing(self, package: str, country: str = "us") -> Listing:
         data = json.loads((self._case(package) / "expected_listing.json").read_text())
         return validate_listing(Listing(**data))
 
-    def get_reviews(self, package: str, since_id: str | None = None, limit: int = 500) -> list[Review]:
+    def get_reviews(self, package: str, since_id: str | None = None, limit: int = 500,
+                    country: str = "us") -> list[Review]:
         rows = json.loads((self._case(package) / "expected_reviews.json").read_text())
         out = []
         for row in rows:
@@ -44,7 +45,7 @@ class StubAdapter:
                 break
         return out
 
-    def exists(self, package: str) -> bool:
+    def exists(self, package: str, country: str = "us") -> bool:
         try:
             self._case(package)
             return True

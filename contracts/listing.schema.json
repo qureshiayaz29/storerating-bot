@@ -11,8 +11,8 @@
     "size", "updated_at", "release_notes"
   ],
   "properties": {
-    "store":            { "type": "string", "enum": ["google_play"] },
-    "package":          { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+$" },
+    "store":            { "type": "string", "enum": ["google_play", "app_store"] },
+    "package":          { "type": "string", "pattern": "^([A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+|[0-9]{3,12})$" },
     "name":             { "type": "string", "minLength": 1 },
     "developer":        { "type": ["string", "null"] },
     "icon_url":         { "type": ["string", "null"], "format": "uri" },

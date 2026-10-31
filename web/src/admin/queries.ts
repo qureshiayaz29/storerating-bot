@@ -18,6 +18,7 @@ export async function overview(sql: Sql) {
               and event in ('update_sent','alert_sent'))::int as reached_24h,
            (select count(*) from users where blocked)::int as blocked,
            (select count(distinct package) from watchlist)::int as apps,
+           (select count(distinct package) from watchlist where package like 'ios:%')::int as apps_ios,
            (select coalesce(sum(cost_usd),0)::float from spend where ts >= date_trunc('day', now())) as spend_today`;
   const history = await sql`
     select date::text as date, dau_active, dau_reached, users_new, users_total, blocked_new, updates_sent
@@ -49,6 +50,8 @@ export async function funnel(sql: Sql) {
 export async function apps(sql: Sql) {
   const top = await sql`
     select w.package, coalesce(a.name, w.package) as name, count(*)::int as watchers,
+           case when w.package like 'ios:%' then 'App Store' else 'Google Play' end as store,
+           upper(coalesce(substring(w.package from '^(?:play|ios):([a-z]{2}):'), 'us')) as country,
            (select rating::float from app_snapshots s where s.package = w.package order by date desc limit 1) as rating
     from watchlist w join apps a using (package) group by w.package, a.name order by watchers desc limit 20`;
   const failedAdds = await sql`

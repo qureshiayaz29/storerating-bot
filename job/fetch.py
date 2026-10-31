@@ -79,7 +79,7 @@ def fetch_app(app: AppToFetch, active: StoreSource, fallback: StoreSource | None
                 log_error(conn, "store_source", app.package, f"{fallback.name}: {e2}")
             out.error = e2
             return out
-    out.adapter = source.name
+    out.adapter = source.name_for(app.package) if hasattr(source, "name_for") else source.name
 
     try:
         limit = FIRST_RUN_LIMIT if out.first_run else REVIEW_LIMIT

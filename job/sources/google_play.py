@@ -46,8 +46,8 @@ class GooglePlayScraperAdapter:
 
     # --- contract -------------------------------------------------------
 
-    def get_listing(self, package: str) -> Listing:
-        raw = self._call(package, self._app, package, lang=self._lang, country=self._country)
+    def get_listing(self, package: str, country: str | None = None) -> Listing:
+        raw = self._call(package, self._app, package, lang=self._lang, country=country or self._country)
         try:
             listing = Listing(
                 store="google_play",
@@ -68,14 +68,15 @@ class GooglePlayScraperAdapter:
             raise SourceError("parse_failed", package, f"{type(e).__name__}: {e}") from e
         return validate_listing(listing)
 
-    def get_reviews(self, package: str, since_id: str | None = None, limit: int = 500) -> list[Review]:
+    def get_reviews(self, package: str, since_id: str | None = None, limit: int = 500,
+                    country: str | None = None) -> list[Review]:
         out: list[Review] = []
         token = None
         while len(out) < limit:
             if token is None:
                 page, token = self._call(
                     package, self._reviews, package,
-                    lang=self._lang, country=self._country,
+                    lang=self._lang, country=country or self._country,
                     sort=self._newest, count=min(PAGE_SIZE, limit - len(out)),
                 )
             else:
@@ -92,9 +93,9 @@ class GooglePlayScraperAdapter:
                 break
         return out
 
-    def exists(self, package: str) -> bool:
+    def exists(self, package: str, country: str | None = None) -> bool:
         try:
-            self.get_listing(package)
+            self.get_listing(package, country)
             return True
         except SourceError as e:
             if e.reason == "not_found":

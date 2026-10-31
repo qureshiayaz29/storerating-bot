@@ -1,3 +1,5 @@
+import type { Store } from '../sources/contract';
+
 // Telegram update shapes we use, and the Repo the handlers depend on.
 
 export interface TgUser {
@@ -33,7 +35,15 @@ export interface UserRow {
   timezone: string;
   digest_time: string; // HH:MM
   paused: boolean;
+  timezone_set?: boolean;
+  saved_country?: string | null;
+  pending?: PendingReply | null;
 }
+
+/** What the Bot waits for from a User: a country code for an add or a Country Change. */
+export type PendingReply =
+  | { kind: 'add_country'; input: string; save: boolean; expires_at: string }
+  | { kind: 'change_country'; app_key: string; expires_at: string };
 
 export interface WatchRow {
   package: string;
@@ -71,7 +81,11 @@ export interface Repo {
   setConfig(key: string, value: string): Promise<void>;
 
   getApp(pkg: string): Promise<AppRow | null>;
-  upsertApp(app: { package: string; name: string; developer: string | null; icon_url: string | null }): Promise<void>;
+  upsertApp(app: { package: string; store: Store; name: string; developer: string | null; icon_url: string | null }): Promise<void>;
+  setPending(chatId: number, pending: PendingReply | null): Promise<void>;
+  setSavedCountry(chatId: number, country: string): Promise<void>;
+  /** Moves one Watchlist row to another App Key, keeping its paused state. */
+  moveWatch(chatId: number, from: string, to: string): Promise<void>;
 
   watchlist(chatId: number): Promise<WatchRow[]>;
   addWatch(chatId: number, pkg: string): Promise<boolean>; // false if already watching

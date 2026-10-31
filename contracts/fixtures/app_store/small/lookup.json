@@ -1,0 +1,23 @@
+{
+  "resultCount": 1,
+  "results": [
+    {
+      "wrapperType": "software",
+      "kind": "software",
+      "trackId": 1446893455,
+      "trackName": "Notely Pad",
+      "sellerName": "Notely Labs LLC",
+      "artistName": "Notely Labs LLC",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/1446893455/100x100bb.jpg",
+      "artworkUrl512": "https://is1-ssl.mzstatic.com/image/thumb/1446893455/512x512bb.jpg",
+      "version": "2.4",
+      "averageUserRating": 4.1,
+      "userRatingCount": 87,
+      "fileSizeBytes": "45000000",
+      "currentVersionReleaseDate": "2026-09-01T10:00:00Z",
+      "releaseNotes": null,
+      "bundleId": "net.whatsapp.WhatsApp",
+      "primaryGenreName": "Social Networking"
+    }
+  ]
+}

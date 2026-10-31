@@ -27,14 +27,14 @@ ADMIN_COMMANDS = PUBLIC_COMMANDS + [
     ("setbudget", "Admin: set monthly Claude budget"),
 ]
 NAME = "StoreRating"
-SHORT_DESCRIPTION = "Watches Google Play apps: rating moves, releases, top complaints and 1★ spikes. Free."
+SHORT_DESCRIPTION = "Watches Google Play and App Store apps: rating moves, releases, top complaints, 1★ spikes. Free."
 DESCRIPTION = (
-    "StoreRating watches Google Play apps for you.\n\n"
+    "StoreRating watches Google Play and App Store apps for you, in the country you choose.\n\n"
     "• Daily card per app: rating trend, release markers, top complaints and praise\n"
     "• Instant alerts for new releases, rating drops and 1★ spikes\n"
     "• Watch up to 10 apps, pause anytime\n\n"
     "Privacy: we store your chat ID, timezone, settings and watchlist. Nothing else. /delete removes it all.\n"
-    "Not affiliated with Google."
+    "Not affiliated with Google or Apple."
 )
 ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 

@@ -1,0 +1,54 @@
+[
+  {
+    "feed": {
+      "author": {
+        "name": {
+          "label": "iTunes Store"
+        }
+      },
+      "entry": {
+        "author": {
+          "name": {
+            "label": "user4"
+          },
+          "uri": {
+            "label": "https://itunes.apple.com/in/reviews/id1"
+          }
+        },
+        "updated": {
+          "label": "2026-10-20T10:00:00+00:00"
+        },
+        "im:rating": {
+          "label": "2"
+        },
+        "im:version": {
+          "label": "2.4"
+        },
+        "id": {
+          "label": "11000000004"
+        },
+        "title": {
+          "label": ""
+        },
+        "content": {
+          "label": "Crashes on open",
+          "attributes": {
+            "type": "text"
+          }
+        },
+        "im:voteSum": {
+          "label": "0"
+        },
+        "im:voteCount": {
+          "label": "0"
+        },
+        "link": {
+          "attributes": {
+            "rel": "related",
+            "href": "https://itunes.apple.com/in/review?id=310633997&type=Purple%20Software"
+          }
+        }
+      }
+    }
+  }
+]

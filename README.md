@@ -1,6 +1,6 @@
 # StoreRating
 
-[@storeratingbot](https://t.me/storeratingbot) is a free Telegram bot that watches Google Play apps and tells you what changed: rating moves, new releases, what users complain about, and sudden 1★ spikes.
+[@storeratingbot](https://t.me/storeratingbot) is a free Telegram bot that watches Google Play and App Store apps and tells you what changed: rating moves, new releases, what users complain about, and sudden 1★ spikes.
 
 Add your app and a few competitors, and get one image card per app every morning.
 
@@ -8,7 +8,8 @@ Add your app and a few competitors, and get one image card per app every morning
 
 ## What it does
 
-- **Watch up to 10 apps** — send `/add` with a Play Store link or package name.
+- **Watch up to 10 apps** from Google Play or the App Store — send `/add` with a store link, a package name (`com.whatsapp`) or an App Store ID (`310633997`). The store is detected automatically.
+- **Per-country ratings** — each app is tracked in one country: taken from the link, your timezone, or asked once. Change it anytime from `/apps`.
 - **Daily update** at 11 AM in your timezone, one card per app, only when something changed.
 - **Instant alerts** for new releases, rating drops, 1★ spikes and apps removed from the store.
 - **Review themes** — top complaints and praise, summarised by Claude.
@@ -65,4 +66,4 @@ Found a vulnerability? See [SECURITY.md](SECURITY.md).
 
 [MIT](LICENSE) © 2026 Ayaz Qureshi
 
-StoreRating is not affiliated with or endorsed by Google. Google Play is a trademark of Google LLC.
+StoreRating is not affiliated with or endorsed by Google or Apple. Google Play is a trademark of Google LLC. App Store is a trademark of Apple Inc.

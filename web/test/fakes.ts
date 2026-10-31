@@ -1,11 +1,12 @@
 import type { Listing, LookupSource } from '../src/sources/contract';
 import { SourceError } from '../src/sources/contract';
 import type { Keyboard, Telegram } from '../src/lib/telegram';
-import type { AppRow, BudgetState, Repo, Stats, UserRow, WatchRow } from '../src/bot/types';
+import type { AppRow, BudgetState, PendingReply, Repo, Stats, UserRow, WatchRow } from '../src/bot/types';
+import type { Store } from '../src/sources/contract';
 
 export class FakeRepo implements Repo {
   users = new Map<number, UserRow & { blocked: boolean; last_active_at: Date }>();
-  apps = new Map<string, AppRow & { developer: string | null; icon_url: string | null }>();
+  apps = new Map<string, AppRow & { store?: Store; developer: string | null; icon_url: string | null }>();
   watch: { chat_id: number; package: string; paused: boolean }[] = [];
   events: { chat_id: number | null; event: string; props: Record<string, unknown>; ts: Date }[] = [];
   errors: { source: string; pkg: string | null; message: string }[] = [];
@@ -19,6 +20,8 @@ export class FakeRepo implements Repo {
   onDemand: { chat_id: number; package: string; requested_at: Date; status: string }[] = [];
   deliveries: { chat_id: number; package: string; kind: string; ref: string; status: string }[] = [];
   now = () => new Date('2026-10-29T06:00:00Z');
+  /** Saved Country for new users; null makes /add ask the Country Question. */
+  defaultCountry: string | null = 'us';
 
   async touchUser(chatId: number) {
     const u = this.users.get(chatId);
@@ -27,7 +30,10 @@ export class FakeRepo implements Repo {
       u.last_active_at = this.now();
       return { created: false };
     }
-    this.users.set(chatId, { chat_id: chatId, timezone: 'Asia/Kolkata', digest_time: '11:00', paused: false, blocked: false, last_active_at: this.now() });
+    this.users.set(chatId, {
+      chat_id: chatId, timezone: 'Asia/Kolkata', digest_time: '11:00', paused: false, blocked: false,
+      last_active_at: this.now(), timezone_set: false, saved_country: this.defaultCountry, pending: null,
+    });
     return { created: true };
   }
   async getUser(chatId: number) {
@@ -42,6 +48,17 @@ export class FakeRepo implements Repo {
   }
   async setDigest(chatId: number, f: { timezone?: string; digest_time?: string }) {
     Object.assign(this.users.get(chatId)!, Object.fromEntries(Object.entries(f).filter(([, v]) => v)));
+    if (f.timezone) this.users.get(chatId)!.timezone_set = true;
+  }
+  async setPending(chatId: number, pending: PendingReply | null) {
+    this.users.get(chatId)!.pending = pending;
+  }
+  async setSavedCountry(chatId: number, country: string) {
+    this.users.get(chatId)!.saved_country = country;
+  }
+  async moveWatch(chatId: number, from: string, to: string) {
+    const w = this.watch.find((x) => x.chat_id === chatId && x.package === from);
+    if (w && !this.watch.some((x) => x.chat_id === chatId && x.package === to)) w.package = to;
   }
   async deleteUser(chatId: number) {
     this.users.delete(chatId);
@@ -58,7 +75,7 @@ export class FakeRepo implements Repo {
     const a = this.apps.get(pkg);
     return a ? { package: a.package, name: a.name } : null;
   }
-  async upsertApp(app: { package: string; name: string; developer: string | null; icon_url: string | null }) {
+  async upsertApp(app: { package: string; store: Store; name: string; developer: string | null; icon_url: string | null }) {
     this.apps.set(app.package, app);
   }
   async watchlist(chatId: number): Promise<WatchRow[]> {
@@ -147,10 +164,12 @@ export class FakeTelegram implements Telegram {
 export class FakeLookup implements LookupSource {
   readonly name = 'fake';
   calls: string[] = [];
-  constructor(private readonly behaviour: (pkg: string) => Listing | SourceError = listingFor) {}
-  async getListing(pkg: string) {
+  countries: (string | undefined)[] = [];
+  constructor(private readonly behaviour: (pkg: string, country?: string) => Listing | SourceError = listingFor) {}
+  async getListing(pkg: string, country?: string) {
     this.calls.push(pkg);
-    const r = this.behaviour(pkg);
+    this.countries.push(country);
+    const r = this.behaviour(pkg, country);
     if (r instanceof SourceError) throw r;
     return r;
   }

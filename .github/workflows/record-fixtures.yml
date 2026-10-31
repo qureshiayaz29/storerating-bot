@@ -1,6 +1,6 @@
 name: Record fixtures
 
-# Records real google-play-scraper output for Contract Fixtures and uploads it
+# Records real google-play-scraper and App Store output for Contract Fixtures and uploads it
 # as an artifact. Nothing is committed automatically: review the files, then
 # copy them into contracts/fixtures/ and update the expected files by hand.
 
@@ -16,6 +16,15 @@ on:
       removed:
         description: Package that does not exist on Google Play
         default: com.example.storerating.does.not.exist
+      ios_large:
+        description: App Store key for the large case
+        default: ios:in:310633997
+      ios_small:
+        description: App Store key for the small case
+        default: ios:us:1446893455
+      ios_removed:
+        description: App Store key that does not exist
+        default: ios:in:999999999
 
 permissions:
   contents: read
@@ -34,8 +43,12 @@ jobs:
           LARGE: ${{ inputs.large }}
           SMALL: ${{ inputs.small }}
           REMOVED: ${{ inputs.removed }}
+          IOS_LARGE: ${{ inputs.ios_large }}
+          IOS_SMALL: ${{ inputs.ios_small }}
+          IOS_REMOVED: ${{ inputs.ios_removed }}
         run: |
-          python -m job.record_fixtures recorded "large=$LARGE" "small=$SMALL" "removed=$REMOVED"
+          python -m job.record_fixtures recorded "large=$LARGE" "small=$SMALL" "removed=$REMOVED" \
+            "large=$IOS_LARGE" "small=$IOS_SMALL" "removed=$IOS_REMOVED"
       - uses: actions/upload-artifact@v4
         with:
           name: recorded-fixtures

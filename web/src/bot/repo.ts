@@ -2,7 +2,8 @@
 // Supabase transaction pooler, so prepared statements are off.
 
 import postgres from 'postgres';
-import type { AppRow, BudgetState, Repo, Stats, UserRow, WatchRow } from './types';
+import type { PendingReply, AppRow, BudgetState, Repo, Stats, UserRow, WatchRow } from './types';
+import type { Store } from '../sources/contract';
 
 export type Sql = postgres.Sql;
 
@@ -29,7 +30,8 @@ export class PgRepo implements Repo {
 
   async getUser(chatId: number): Promise<UserRow | null> {
     const rows = await this.sql<UserRow[]>`
-      select chat_id, timezone, to_char(digest_time, 'HH24:MI') as digest_time, paused
+      select chat_id, timezone, to_char(digest_time, 'HH24:MI') as digest_time, paused,
+             timezone_set, saved_country, pending
       from users where chat_id = ${chatId}`;
     return rows[0] ?? null;
   }
@@ -43,7 +45,7 @@ export class PgRepo implements Repo {
   }
 
   async setDigest(chatId: number, fields: { timezone?: string; digest_time?: string }) {
-    if (fields.timezone) await this.sql`update users set timezone = ${fields.timezone} where chat_id = ${chatId}`;
+    if (fields.timezone) await this.sql`update users set timezone = ${fields.timezone}, timezone_set = true where chat_id = ${chatId}`;
     if (fields.digest_time) await this.sql`update users set digest_time = ${fields.digest_time}::time where chat_id = ${chatId}`;
   }
 
@@ -70,10 +72,28 @@ export class PgRepo implements Repo {
     return rows[0] ?? null;
   }
 
-  async upsertApp(app: { package: string; name: string; developer: string | null; icon_url: string | null }) {
+  async setPending(chatId: number, pending: PendingReply | null) {
+    await this.sql`update users set pending = ${pending ? this.sql.json(pending as unknown as postgres.JSONValue) : null} where chat_id = ${chatId}`;
+  }
+
+  async setSavedCountry(chatId: number, country: string) {
+    await this.sql`update users set saved_country = ${country} where chat_id = ${chatId}`;
+  }
+
+  async moveWatch(chatId: number, from: string, to: string) {
+    await this.sql.begin(async (tx) => {
+      await tx`
+        insert into watchlist (chat_id, package, paused, added_at)
+        select chat_id, ${to}, paused, added_at from watchlist where chat_id = ${chatId} and package = ${from}
+        on conflict do nothing`;
+      await tx`delete from watchlist where chat_id = ${chatId} and package = ${from}`;
+    });
+  }
+
+  async upsertApp(app: { package: string; store: Store; name: string; developer: string | null; icon_url: string | null }) {
     await this.sql`
-      insert into apps (package, name, developer, icon_url)
-      values (${app.package}, ${app.name}, ${app.developer}, ${app.icon_url})
+      insert into apps (package, store, name, developer, icon_url)
+      values (${app.package}, ${app.store}, ${app.name}, ${app.developer}, ${app.icon_url})
       on conflict (package) do update
         set name = excluded.name, developer = excluded.developer, icon_url = excluded.icon_url, removed = false`;
   }

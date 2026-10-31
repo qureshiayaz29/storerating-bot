@@ -1,0 +1,151 @@
+[
+  {
+    "feed": {
+      "author": {
+        "name": {
+          "label": "iTunes Store"
+        }
+      },
+      "entry": [
+        {
+          "author": {
+            "name": {
+              "label": "user1"
+            },
+            "uri": {
+              "label": "https://itunes.apple.com/in/reviews/id1"
+            }
+          },
+          "updated": {
+            "label": "2026-10-30T09:12:44-07:00"
+          },
+          "im:rating": {
+            "label": "1"
+          },
+          "im:version": {
+            "label": "26.21.74"
+          },
+          "id": {
+            "label": "11000000001"
+          },
+          "title": {
+            "label": "Chats not loading"
+          },
+          "content": {
+            "label": "Since the update my chats take ages to load.",
+            "attributes": {
+              "type": "text"
+            }
+          },
+          "im:voteSum": {
+            "label": "12"
+          },
+          "im:voteCount": {
+            "label": "12"
+          },
+          "link": {
+            "attributes": {
+              "rel": "related",
+              "href": "https://itunes.apple.com/in/review?id=310633997&type=Purple%20Software"
+            }
+          }
+        },
+        {
+          "author": {
+            "name": {
+              "label": "user2"
+            },
+            "uri": {
+              "label": "https://itunes.apple.com/in/reviews/id1"
+            }
+          },
+          "updated": {
+            "label": "2026-10-30T08:01:02-07:00"
+          },
+          "im:rating": {
+            "label": "5"
+          },
+          "im:version": {
+            "label": "26.21.74"
+          },
+          "id": {
+            "label": "11000000002"
+          },
+          "title": {
+            "label": "Great"
+          },
+          "content": {
+            "label": "Great app for calls",
+            "attributes": {
+              "type": "text"
+            }
+          },
+          "im:voteSum": {
+            "label": "3"
+          },
+          "im:voteCount": {
+            "label": "3"
+          },
+          "link": {
+            "attributes": {
+              "rel": "related",
+              "href": "https://itunes.apple.com/in/review?id=310633997&type=Purple%20Software"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "feed": {
+      "author": {
+        "name": {
+          "label": "iTunes Store"
+        }
+      },
+      "entry": {
+        "author": {
+          "name": {
+            "label": "user3"
+          },
+          "uri": {
+            "label": "https://itunes.apple.com/in/reviews/id1"
+          }
+        },
+        "updated": {
+          "label": "2026-10-29T22:10:00-07:00"
+        },
+        "im:rating": {
+          "label": "4"
+        },
+        "im:version": {
+          "label": "26.21.70"
+        },
+        "id": {
+          "label": "11000000003"
+        },
+        "title": {
+          "label": "Good"
+        },
+        "content": {
+          "label": "Works well but backups are slow",
+          "attributes": {
+            "type": "text"
+          }
+        },
+        "im:voteSum": {
+          "label": "0"
+        },
+        "im:voteCount": {
+          "label": "0"
+        },
+        "link": {
+          "attributes": {
+            "rel": "related",
+            "href": "https://itunes.apple.com/in/review?id=310633997&type=Purple%20Software"
+          }
+        }
+      }
+    }
+  }
+]

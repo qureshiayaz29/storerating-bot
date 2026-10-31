@@ -84,10 +84,14 @@ def main() -> None:
     active, fallback = registry.active_source(), registry.fallback_source()
 
     with job_run(conn, "daily") as run:
-        ok, msg = health.check(active)
-        print(msg)
-        if not ok:
-            admin_alert(f"🩺 Store Source health check failed\n{msg}", tg)
+        canaries = [health.CANARY]
+        if conn.execute("select 1 from watchlist where package like 'ios:%' limit 1").fetchone():
+            canaries.append(health.APP_STORE_CANARY)
+        for canary in canaries:
+            ok, msg = health.check(active, canary)
+            print(msg)
+            if not ok:
+                admin_alert(f"🩺 Store Source health check failed\n{msg}", tg)
 
         outcomes = fetch.run_fetch(conn, today, active, fallback, run)
         if any(o.used_fallback for o in outcomes):

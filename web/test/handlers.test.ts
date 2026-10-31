@@ -45,9 +45,10 @@ describe('/add', () => {
   it('looks up a new app, stores it and adds it to the watchlist', async () => {
     await send(msg('/add https://play.google.com/store/apps/details?id=com.example.notes&hl=en'));
     expect(lookup.calls).toEqual(['com.example.notes']);
-    expect(repo.apps.get('com.example.notes')?.name).toBe('App notes');
+    expect(lookup.countries).toEqual(['us']);
+    expect(repo.apps.get('play:us:com.example.notes')?.name).toBe('App notes');
     expect(await repo.watchlist(USER)).toHaveLength(1);
-    expect(tg.last().text).toContain('Watching <b>App notes</b>');
+    expect(tg.last().text).toContain('Added <b>App notes</b> · Google Play · US');
     expect(tg.last().text).toContain('4.3★');
     expect(repo.eventNames()).toContain('add_app');
   });
@@ -83,7 +84,7 @@ describe('/add', () => {
     deps.lookup = new FakeLookup((p) => new SourceError('blocked', p, '403'));
     await send(msg('/add com.example.app'));
     expect(tg.last().text).toBe(TEXT.storeDown);
-    expect(repo.errors[0]).toMatchObject({ source: 'store_source', pkg: 'com.example.app' });
+    expect(repo.errors[0]).toMatchObject({ source: 'store_source', pkg: 'play:us:com.example.app' });
   });
 
   it('does not add the same app twice', async () => {
@@ -99,7 +100,7 @@ describe('/add', () => {
     expect(await repo.watchlist(USER)).toHaveLength(10);
     expect(tg.last().text).toBe(TEXT.limitReached(10));
     expect(tg.last().keyboard).toHaveLength(10);
-    expect(tg.last().keyboard![0][0].callback_data).toBe(`x:${pkgKey('com.example.app1')}`);
+    expect(tg.last().keyboard![0][0].callback_data).toBe(`x:${pkgKey('play:us:com.example.app1')}`);
   });
 
   it('enforces the Action Limit of 20 adds and removes per hour', async () => {
@@ -122,7 +123,7 @@ describe('/apps and buttons', () => {
     await send(msg('/apps'));
     const { text, keyboard } = tg.last();
     expect(text).toContain('Your apps (2/10)');
-    expect(keyboard![0].map((b) => b.callback_data)).toEqual([`p:${pkgKey('com.example.notes')}`, `x:${pkgKey('com.example.notes')}`]);
+    expect(keyboard![0].map((b) => b.callback_data)).toEqual([`p:${pkgKey('play:us:com.example.notes')}`, `c:${pkgKey('play:us:com.example.notes')}`, `x:${pkgKey('play:us:com.example.notes')}`]);
     expect(keyboard!.at(-1)![0].callback_data).toBe('pa');
   });
 
@@ -134,24 +135,24 @@ describe('/apps and buttons', () => {
   });
 
   it('pauses and resumes one app', async () => {
-    await send(tap(`p:${pkgKey('com.example.notes')}`));
+    await send(tap(`p:${pkgKey('play:us:com.example.notes')}`));
     expect((await repo.watchlist(USER))[0].paused).toBe(true);
     expect(tg.last()).toMatchObject({ kind: 'edit' });
-    await send(tap(`r:${pkgKey('com.example.notes')}`));
+    await send(tap(`r:${pkgKey('play:us:com.example.notes')}`));
     expect((await repo.watchlist(USER))[0].paused).toBe(false);
   });
 
   it('asks before removing, then removes', async () => {
-    await send(tap(`x:${pkgKey('com.example.maps')}`));
+    await send(tap(`x:${pkgKey('play:us:com.example.maps')}`));
     expect(tg.last().text).toContain('Remove <b>App maps</b>');
     expect(await repo.watchlist(USER)).toHaveLength(2);
-    await send(tap(`xy:${pkgKey('com.example.maps')}`));
-    expect((await repo.watchlist(USER)).map((w) => w.package)).toEqual(['com.example.notes']);
+    await send(tap(`xy:${pkgKey('play:us:com.example.maps')}`));
+    expect((await repo.watchlist(USER)).map((w) => w.package)).toEqual(['play:us:com.example.notes']);
     expect(repo.eventNames()).toContain('remove_app');
   });
 
   it('cancel keeps the app', async () => {
-    await send(tap(`x:${pkgKey('com.example.maps')}`));
+    await send(tap(`x:${pkgKey('play:us:com.example.maps')}`));
     await send(tap('xn'));
     expect(await repo.watchlist(USER)).toHaveLength(2);
   });
@@ -164,7 +165,7 @@ describe('/apps and buttons', () => {
   });
 
   it('a stale button does nothing harmful', async () => {
-    await send(tap(`xy:${pkgKey('com.example.unknown')}`));
+    await send(tap(`xy:${pkgKey('play:us:com.example.unknown')}`));
     expect(await repo.watchlist(USER)).toHaveLength(2);
     expect(tg.sent.at(-1)).toMatchObject({ kind: 'answer', text: 'That app is no longer in your list' });
   });
@@ -296,16 +297,16 @@ describe('On-demand Runs after /add', () => {
   });
 
   it("sends today's Card at once when it exists, with no run and no cost", async () => {
-    repo.cards.set('com.example.notes', { file_id: 'F1', caption: 'cap', period_start: '2026-10-29', created_at: repo.now() });
+    repo.cards.set('play:us:com.example.notes', { file_id: 'F1', caption: 'cap', period_start: '2026-10-29', created_at: repo.now() });
     await send(msg('/add com.example.notes'));
     expect(tg.sent.find((s) => s.kind === 'photo')).toMatchObject({ chatId: USER, fileId: 'F1', text: 'cap' });
-    expect(repo.deliveries).toEqual([{ chat_id: USER, package: 'com.example.notes', kind: 'daily', ref: '2026-10-29', status: 'sent' }]);
+    expect(repo.deliveries).toEqual([{ chat_id: USER, package: 'play:us:com.example.notes', kind: 'daily', ref: '2026-10-29', status: 'sent' }]);
     expect(dispatches).toBe(0);
     expect(repo.onDemand).toHaveLength(0);
   });
 
   it('ignores a Card older than 30 hours', async () => {
-    repo.cards.set('com.example.notes', { file_id: 'F1', caption: 'c', period_start: '2026-10-27', created_at: new Date('2026-10-27T00:00:00Z') });
+    repo.cards.set('play:us:com.example.notes', { file_id: 'F1', caption: 'c', period_start: '2026-10-27', created_at: new Date('2026-10-27T00:00:00Z') });
     await send(msg('/add com.example.notes'));
     expect(tg.sent.some((s) => s.kind === 'photo')).toBe(false);
     expect(dispatches).toBe(1);
@@ -315,7 +316,7 @@ describe('On-demand Runs after /add', () => {
     for (const p of ['a', 'b', 'c', 'd', 'e']) await send(msg(`/add com.example.${p}`));
     expect(repo.onDemand).toHaveLength(5);
     expect(dispatches).toBe(1);
-    expect(tg.last().text).toContain('Full report coming in a few minutes');
+    expect(tg.last().text).toContain('Your first update arrives in a few minutes');
   });
 
   it('the 6th new app in a day waits for the digest (New-App Quota)', async () => {
@@ -389,5 +390,123 @@ describe('/login', () => {
   it('explains when SESSION_SECRET is missing', async () => {
     await send(msg('/login', ADMIN));
     expect(tg.last().text).toContain('SESSION_SECRET');
+  });
+});
+
+// --- Store Country -----------------------------------------------------------------
+
+describe('/add country rules', () => {
+  const apple = () => new FakeLookup((id, country) => ({ ...listingFor(`app.${id}`), store: 'app_store', package: id, name: `Apple ${id} ${country}` }));
+
+  it('uses the country in an App Store link, with no question', async () => {
+    repo.defaultCountry = null;
+    deps.appStoreLookup = apple();
+    await send(msg('/add https://apps.apple.com/us/app/whatsapp-messenger/id310633997'));
+    expect((await repo.watchlist(USER)).map((w) => w.package)).toEqual(['ios:us:310633997']);
+    expect(repo.apps.get('ios:us:310633997')?.store).toBe('app_store');
+    expect(tg.sent.find((s) => s.text?.includes('✅ Added'))?.text).toContain('App Store · US');
+  });
+
+  it('uses the timezone country only when the user set it', async () => {
+    repo.defaultCountry = null;
+    await send(msg('/settings tz Europe/London'));
+    await send(msg('/add com.whatsapp'));
+    expect((await repo.watchlist(USER)).map((w) => w.package)).toEqual(['play:gb:com.whatsapp']);
+  });
+
+  it('asks for a code, re-asks on a bad one, then saves the answer', async () => {
+    repo.defaultCountry = null;
+    deps.appStoreLookup = apple();
+    await send(msg('/add 310633997'));
+    expect(tg.last().text).toBe(TEXT.countryQuestion('app_store'));
+    await send(msg('xx'));
+    expect(tg.last().text).toBe(TEXT.badCode('xx'));
+    expect(await repo.watchlist(USER)).toHaveLength(0);
+    await send(msg('IN'));
+    expect((await repo.watchlist(USER)).map((w) => w.package)).toEqual(['ios:in:310633997']);
+    expect(repo.users.get(USER)?.saved_country).toBe('in');
+    expect(repo.users.get(USER)?.pending).toBeNull();
+    await send(msg('/add 1446893455')); // second bare ID: no question
+    expect((await repo.watchlist(USER)).map((w) => w.package)).toContain('ios:in:1446893455');
+  });
+
+  it('a command clears the question, and so does expiry', async () => {
+    repo.defaultCountry = null;
+    await send(msg('/add com.whatsapp'));
+    await send(msg('/apps'));
+    expect(repo.users.get(USER)?.pending).toBeNull();
+    await send(msg('/add com.whatsapp'));
+    repo.users.get(USER)!.pending!.expires_at = '2026-10-29T05:00:00Z';
+    await send(msg('in'));
+    expect(await repo.watchlist(USER)).toHaveLength(0);
+    expect(tg.last().text).toBe(TEXT.help);
+  });
+
+  it('offers the countries where a missing app exists, without saving the choice', async () => {
+    deps.appStoreLookup = new FakeLookup((id, country) =>
+      country === 'us' || country === 'gb' ? { ...listingFor('a.hinge'), store: 'app_store', package: id, name: 'Hinge' } : new SourceError('not_found', id));
+    repo.defaultCountry = 'in';
+    await send(msg('/add 595287172'));
+    expect(tg.last().text).toBe(TEXT.notInCountry('Hinge', 'app_store', 'in', ['us', 'gb']));
+    expect(await repo.watchlist(USER)).toHaveLength(0);
+    await send(msg('us'));
+    expect((await repo.watchlist(USER)).map((w) => w.package)).toEqual(['ios:us:595287172']);
+    expect(repo.users.get(USER)?.saved_country).toBe('in');
+  });
+
+  it('says not found when no checked country has the app', async () => {
+    deps.appStoreLookup = new FakeLookup((id) => new SourceError('not_found', id));
+    await send(msg('/add 123456789'));
+    expect(tg.last().text).toBe(TEXT.notFound('123456789', 'app_store'));
+    expect(repo.users.get(USER)?.pending).toBeNull();
+  });
+
+  it('settings show where new apps go', async () => {
+    repo.defaultCountry = null;
+    await send(msg('/settings'));
+    expect(tg.last().text).toContain("Country for new apps: taken from each app's link, or I'll ask");
+    await send(msg('/settings tz Europe/London'));
+    await send(msg('/settings'));
+    expect(tg.last().text).toContain('Country for new apps: United Kingdom (from your timezone)');
+  });
+});
+
+describe('Change country', () => {
+  it('moves an app to another country and sends its first update', async () => {
+    deps.dispatch = async () => {};
+    await send(msg('/add com.example.notes'));
+    const before = await repo.watchlist(USER);
+    await repo.setWatchPaused(USER, before[0].package, true);
+    await send(tap(`c:${pkgKey('play:us:com.example.notes')}`));
+    expect(tg.last().text).toContain("It's United States now");
+    await send(msg('in'));
+    const after = await repo.watchlist(USER);
+    expect(after.map((w) => [w.package, w.paused])).toEqual([['play:in:com.example.notes', true]]);
+    const moved = tg.sent.find((s) => s.text?.includes('moved from'))!.text!;
+    expect(moved).toContain('moved from Google Play · US to Google Play · IN');
+    expect(moved).toContain('the trend starts fresh today');
+    expect(repo.onDemand.at(-1)?.package).toBe('play:in:com.example.notes');
+    expect(repo.eventNames()).toContain('change_country');
+  });
+
+  it('same country, bad codes and missing apps keep the old country', async () => {
+    await send(msg('/add com.example.notes'));
+    await send(tap(`c:${pkgKey('play:us:com.example.notes')}`));
+    await send(msg('us'));
+    expect(tg.last().text).toContain('already tracked in United States');
+    await send(tap(`c:${pkgKey('play:us:com.example.notes')}`));
+    await send(msg('zz'));
+    expect(tg.last().text).toBe(TEXT.badCode('zz'));
+    deps.lookup = new FakeLookup((id, c) => (c === 'jp' ? new SourceError('not_found', id) : listingFor(id)));
+    await send(msg('jp'));
+    expect(tg.last().text).toContain("isn't on Google Play in Japan");
+    expect((await repo.watchlist(USER)).map((w) => w.package)).toEqual(['play:us:com.example.notes']);
+  });
+
+  it('/apps shows the store badge and a country button', async () => {
+    await send(msg('/add com.example.notes'));
+    await send(msg('/apps'));
+    expect(tg.last().text).toContain('App notes · Google Play · US');
+    expect(tg.last().keyboard![0][1]).toEqual({ text: '🌍 US', callback_data: `c:${pkgKey('play:us:com.example.notes')}` });
   });
 });

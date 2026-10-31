@@ -1,6 +1,6 @@
 # Plan: App Store support and per-app country
 
-Priority 1 in [ROADMAP.md](../../ROADMAP.md).
+Priority 1 in [ROADMAP.md](../../ROADMAP.md). Built 31 Oct 2026, except Phase G: existing Apps became `play:us:…` and Users move them themselves with 🌍 in `/apps`. Country codes are validated against ISO 3166 (`contracts/countries.json`); availability per store is checked by lookup.
 
 ## Goal
 

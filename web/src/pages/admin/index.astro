@@ -87,7 +87,7 @@ const live = ov.live as unknown as Record<string, number>;
           <div class="kpi"><b>{live.active_24h}</b><span>active</span></div>
           <div class="kpi"><b>{live.reached_24h}</b><span>reached</span></div>
           <div class="kpi"><b>{live.block_rate}%</b><span>blocked the bot</span></div>
-          <div class="kpi"><b>{live.apps}</b><span>apps watched</span></div>
+          <div class="kpi"><b>{live.apps}</b><span>apps watched · {Number(live.apps) - Number(live.apps_ios)} Play, {Number(live.apps_ios)} App Store</span></div>
           <div class="kpi"><b>{usd(live.spend_today)}</b><span>Claude today</span></div>
         </div>
         <p class="muted">Reached users, last 30 days</p>
@@ -115,8 +115,8 @@ const live = ov.live as unknown as Record<string, number>;
 
       <section id="apps">
         <h2>Apps</h2>
-        <table><tr><th>App</th><th>Watchers</th><th>Rating</th></tr>
-          {(ap.top as unknown as Record<string, unknown>[]).map((a) => <tr><td>{a.name} <span class="muted">{a.package}</span></td><td>{a.watchers}</td><td>{a.rating ?? '–'}</td></tr>)}
+        <table><tr><th>App</th><th>Store</th><th>Country</th><th>Watchers</th><th>Rating</th></tr>
+          {(ap.top as unknown as Record<string, unknown>[]).map((a) => <tr><td>{a.name} <span class="muted">{a.package}</span></td><td>{a.store}</td><td>{a.country}</td><td>{a.watchers}</td><td>{a.rating ?? '–'}</td></tr>)}
         </table>
         <h2 style="margin-top:16px">Failed /add (30 days)</h2>
         <table>{(ap.failedAdds as unknown as Record<string, unknown>[]).map((r) => <tr><td>{r.reason}</td><td>{r.n}</td></tr>)}</table>

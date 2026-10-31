@@ -10,7 +10,7 @@ import { readEnv, safeEqual } from '../../lib/env';
 import { TelegramApi } from '../../lib/telegram';
 import { githubDispatcher } from '../../lib/dispatch';
 import { signLoginToken } from '../../lib/session';
-import { NodeScraperLookup } from '../../sources/lookup';
+import { AppStoreLookup, NodeScraperLookup } from '../../sources/lookup';
 
 export const POST: APIRoute = async ({ request }) => {
   const env = readEnv();
@@ -35,6 +35,7 @@ export const POST: APIRoute = async ({ request }) => {
       repo,
       tg: new TelegramApi(env.botToken),
       lookup: new NodeScraperLookup(),
+      appStoreLookup: new AppStoreLookup(),
       adminChatId: env.adminChatId,
       loginLink: process.env.SESSION_SECRET
         ? () => `${process.env.PUBLIC_URL || new URL(request.url).origin}/admin/magic?t=${signLoginToken(env.adminChatId, process.env.SESSION_SECRET!)}`
