@@ -115,8 +115,15 @@ def card_html(d: CardData) -> str:
             else f'<div class="icon letter">{e((d.name or "?")[:1].upper())}</div>')
     stats = "".join(f'<div class="stat"><div class="sv">{e(v)}</div><div class="sl">{e(l)}</div></div>'
                     for v, l in d.stats[:3])
-    chips = "".join(f'<div class="chip {"good" if k == "good" else "bad"}"><span class="dot"></span>{e(t)}</div>'
-                    for k, t in d.chips[:3])
+    def row(kind: str, limit: int) -> str:
+        items = [t for k, t in d.chips if (k == "good") == (kind == "good")][:limit]
+        return ('<div class="chips">' + "".join(f'<div class="chip {kind}"><span class="dot"></span>{e(t)}</div>' for t in items)
+                + "</div>") if items else ""
+    rows = [r for r in (row("bad", 3), row("good", 2)) if r]
+    chips = "".join(rows)
+    # The bottom block is pinned to the bottom edge; the chart grows to fill the space above it.
+    bottom_h = 28 + 14 + (40 * len(rows) + 10 * (len(rows) - 1) if rows else 0)   # takeaway line + its margin + chip rows
+    chart_h = (H - 30 - bottom_h - 24) - 100 - 54
     version = f"v{d.version}" if d.version and d.version != VARIES else None
     sub = " · ".join(x for x in (d.store, d.developer, version) if x)
     muted = f" <span>{e(d.verdict_muted)}</span>" if d.verdict_muted else ""
@@ -151,10 +158,10 @@ body{{width:{W}px;height:{H}px;background:#0e1219;font-family:Inter,"Noto Sans",
 .ct{{display:flex;justify-content:space-between;color:#9aa4b6;font-size:14px;font-weight:600;margin-bottom:6px}}
 .ct b{{color:#eef1f6}}
 .bottom{{position:absolute;left:44px;right:44px;bottom:30px}}
-.verdict{{font-size:20px;font-weight:600;margin-bottom:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.verdict{{font-size:20px;font-weight:600;line-height:28px;margin-bottom:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .verdict span{{color:#8b95a8;font-weight:500}}
-.chips{{display:flex;gap:10px;overflow:hidden}}
-.chip{{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:500;padding:9px 14px;border-radius:12px;background:#161c27;border:1px solid #232b3a;white-space:nowrap;max-width:360px;overflow:hidden;text-overflow:ellipsis}}
+.chips{{display:flex;gap:10px;overflow:hidden}} .chips+.chips{{margin-top:10px}}
+.chip{{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:500;height:40px;padding:0 14px;border-radius:12px;background:#161c27;border:1px solid #232b3a;white-space:nowrap;max-width:364px;overflow:hidden;text-overflow:ellipsis;flex:none}}
 .dot{{width:9px;height:9px;border-radius:50%;flex:none}}
 .bad .dot{{background:#ff6b5e}} .good .dot{{background:#34d399}}
 </style></head><body><div class="card">
@@ -165,8 +172,8 @@ body{{width:{W}px;height:{H}px;background:#0e1219;font-family:Inter,"Noto Sans",
 <div class="rating"><div class="big">{rating}</div><div class="star">★</div>{delta}</div>
 <div class="cap">{e(d.subline)}</div><div class="stats">{stats}</div></div>
 <div class="right"><div class="ct"><span>Rating · <b>{e(d.chart_title)}</b></span><span>┆ release</span></div>
-{chart_svg(d.points, d.x_labels, d.releases)}</div></div>
-<div class="bottom"><div class="verdict">{e(d.verdict)}{muted}</div><div class="chips">{chips}</div></div>
+{chart_svg(d.points, d.x_labels, d.releases, h=chart_h)}</div></div>
+<div class="bottom"><div class="verdict">{e(d.verdict)}{muted}</div>{chips}</div>
 </div></body></html>"""
 
 
@@ -321,7 +328,7 @@ def daily_card(conn, package: str, today: date) -> tuple[CardData, list[dict], l
              (f"{float(share) * 100:.0f}%" if share is not None else "–", "1★ share today")]
     if cur.get("version"):
         stats.append((f"v{cur['version']}" if cur["version"] != "Varies with device" else "varies", "version"))
-    chips = [("bad", _chip(c)) for c in complaints[:2]] + [("good", _chip(p)) for p in praise[:1]]
+    chips = [("bad", _chip(c)) for c in complaints[:3]] + [("good", _chip(p)) for p in praise[:2]]
     verdict = _fallback_verdict(rating, delta, n)          # card: facts; Claude's take goes in the caption
     takeaway = (s and s["verdict"]) or ""
     d = CardData(

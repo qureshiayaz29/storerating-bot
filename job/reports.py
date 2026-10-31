@@ -141,7 +141,7 @@ def report_card(conn, package: str, p: Period, themes: summaries.Summary | None)
              (f"{low['rating']:.2f}" if low else "–", "lowest")]
     complaints = themes.complaints if themes else []
     praise = themes.praise if themes else []
-    chips = [("bad", _chip(c)) for c in complaints[:2]] + [("good", _chip(x)) for x in praise[:1]]
+    chips = [("bad", _chip(c)) for c in complaints[:3]] + [("good", _chip(x)) for x in praise[:2]]
     sub = (f"{p.start.day} {p.start:%b} → {p.end.day} {p.end:%b}" +
            (f" · low of {low['rating']:.2f} on {low['date'].day} {low['date']:%b}" if low else ""))
     verdict = _fallback(first, last, len(releases))   # card: facts; Claude's take goes in the caption
