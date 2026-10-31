@@ -1,120 +1,148 @@
-# Plan: App Store support
+# Plan: App Store support and per-app country
 
 Priority 1 in [ROADMAP.md](../../ROADMAP.md).
 
 ## Goal
 
-Users watch iPhone apps the same way they watch Google Play apps: `/add` with an App Store link, the same Daily Updates, Alerts, Summaries and Reports. Most teams ship on both stores, and rival apps often get different complaints on iOS.
+Users watch iPhone apps the same way they watch Google Play apps, and every App is tracked in a known country. `/add` accepts a Play or App Store link, package name or App Store ID; the Bot detects the Store, picks the country, checks the App exists there, and confirms. Users can move any App to another country later.
+
+Why country matters for both Stores: Apple shows a separate rating per storefront, and since 2021 Google Play shows each user the ratings and reviews of their own country. The Bot today fetches every Play App from the US store, so an Indian User sees US numbers for Indian apps.
+
+Country rules, in order:
+1. A link that names a country (`apps.apple.com/in/…`, `play.google.com/…&gl=IN`) → that country.
+2. Otherwise, the User's Timezone Country, when the User set a timezone in `/settings`.
+3. Otherwise, the User's Saved Country, when they answered the Country Question before.
+4. Otherwise, ask the Country Question. On an invalid code, ask again. The answer becomes the Saved Country.
 
 Constraints:
-- Free to run. Use Apple's public endpoints only: the iTunes Lookup API for the Listing and the customer reviews RSS feed for Reviews. No API keys, no scraping, no paid service.
-- App Store data is per country. Every App Store App is tracked in exactly one App Store Country.
-- Reuse everything after the Store Source: Fetch, Alerts, Summaries, Cards, Sending, Reports, Dashboard. No second pipeline.
-- Keep the `package` column as the single App key in every table. No foreign-key rework.
-- The 10-app Watchlist limit covers both stores together.
-- The Bot detects the Store from what the User sends. It never asks "Play Store or App Store?".
-- An App missing from the User's App Store Country is not "not found". Apple's endpoints serve every storefront to any caller, so the Bot checks other countries and offers them.
+- Free to run. Apple's public endpoints only: the iTunes Lookup API and the customer reviews RSS feed. No keys, no paid service.
+- One country per App. The same app in two countries is two Apps and counts twice toward the 10-app limit.
+- The Bot detects the Store from the input and never asks for it.
+- An App missing from the chosen country is not added. The Bot says where it is available and lets the User send another country code.
+- Reuse everything after the Store Source: Fetch, Alerts, Summaries, Cards, Sending, Reports, Dashboard.
+- Keep `package` as the single App key column in every table.
 
 Rejected:
-- **Several countries combined per App.** More requests, and rating moves become hard to explain ("dropped in which country?"). One country per App.
-- **A new `app_id` key with a store column in every table.** Touches 10 foreign keys and every query for no user-visible gain. An App Store Key in the existing `package` column does the same job.
-- **Third-party scraper libraries** (`app-store-scraper`). They wrap the same Apple endpoints and add a dependency that can break. Call the endpoints directly.
-- **Asking every User for a country up front.** Most links already contain the country. Ask only when the link does not.
-- **Asking the User which store an App is on.** Play package names (`com.whatsapp`) and App Store IDs (`310633997`) never look alike, and links name their store. Detection is exact.
-- **Silently tracking another country when the App is missing locally.** The User would see ratings from a market they did not choose. Offer the countries; the User picks.
+- **Using the default timezone as the country.** Telegram does not share timezones; every User starts on `Asia/Kolkata`. Trusting it would put every User in India.
+- **A global rating.** Neither store publishes one. Estimating it needs one request per storefront per App per day (~175 for Apple) against a rate-limited API.
+- **Country buttons instead of a typed code.** Buttons cover few countries; a typed two-letter code covers all, and the requirement is a code with re-ask on error.
+- **Silently tracking another country when the App is missing.** The User would read ratings from a market they did not choose.
+- **A new `app_id` column with a store column in every table.** Touches 8 foreign keys and every query. Country and Store live inside the App Key instead.
+- **Keeping US history under the new India key.** Different market, different numbers. The old rows stay as `play:us:…`; India starts fresh.
 
 ## Terms
 
-- **App Store App** — an iPhone app on Apple's App Store, identified by its numeric Track ID (e.g. `310633997` for WhatsApp).
-- **App Store Country** — the two-letter App Store storefront code an App Store App is tracked in (e.g. `in`, `us`). Lower case.
-- **App Store Key** — the `package` value for an App Store App: `ios:<country>:<track id>`, e.g. `ios:in:310633997`. Play package names never contain `:`, so keys cannot collide.
-- **Store** — `google_play` or `app_store`. Stored in `apps.store`; derived from the key.
-- **AppStoreAdapter** — the Source Adapter for App Store Apps. Listing from the iTunes Lookup API, Reviews from the customer reviews RSS feed.
+- **Store** — `google_play` or `app_store`.
+- **Store Country** — the two-letter, lower-case country an App is tracked in (e.g. `in`, `us`).
+- **App Key** — the `package` value: `play:<country>:<package name>` (e.g. `play:in:com.zerodha.kite3`) or `ios:<country>:<track id>` (e.g. `ios:in:310633997`).
+- **Track ID** — the numeric App Store ID (e.g. `310633997`).
+- **Store Detection** — `detectStore(input)`: Google Play for `play.google.com` and `market://` links and package names; App Store for `apps.apple.com` and `itunes.apple.com` links, `id<digits>` and 6–12 bare digits; null otherwise.
+- **Link Country** — the country a link names: the `/<cc>/` path segment of an App Store link, or the `gl` parameter of a Play link.
+- **Timezone Set** — `users.timezone_set`, true once the User picks a timezone in `/settings`.
+- **Timezone Country** — the country of the User's timezone from the IANA `zone1970.tab` table, used only when Timezone Set is true. Null for zones with no single country (e.g. `UTC`).
+- **Saved Country** — `users.saved_country`: the User's last answer to the Country Question.
+- **Country Question** — "Which country's store should I track <name> in? Send a two-letter code, like IN, US or GB."
+- **Valid Country Code** — two letters that are in the Store's country list (`contracts/countries/app_store.json`, `contracts/countries/google_play.json`).
+- **Pending Reply** — `users.pending`: what the Bot waits for from a User (`{kind, input, app_key, expires_at}`), so a plain-text reply such as `us` answers the right question. Expires after 10 minutes.
+- **Availability Check** — after an App is not found in the chosen country, one lookup per Availability Country to find where it exists.
+- **Availability Countries** — `us`, `gb`, `in`, plus the Timezone Country. Stored in `config` as `availability_countries`.
+- **Add Confirmation** — "✅ Added <name> · <Store Badge>. Your first update arrives in a few minutes." with a Change country button.
+- **Country Change** — moving one App in a User's Watchlist from one Store Country to another.
+- **Store Badge** — "Google Play · IN" or "App Store · US", on Cards, captions, `/apps` and confirmations.
+- **AppStoreAdapter** — the Source Adapter for App Store Apps.
 - **Lookup API** — `https://itunes.apple.com/lookup?id=<track id>&country=<country>`.
 - **Reviews Feed** — `https://itunes.apple.com/<country>/rss/customerreviews/page=<n>/id=<track id>/sortby=mostrecent/json`, pages 1–10, 50 Reviews each.
-- **Saved Country** — `users.app_store_country`: the App Store Country a User last chose. Null until first chosen.
-- **Country Prompt** — the Bot message with country buttons, sent when an `/add` gives no App Store Country and the User has no Saved Country.
-- **Store Detection** — `detectStore(input)` in the Webhook Function. Returns `google_play`, `app_store` or null from the text of an `/add`, using the rules in step 22.
-- **Availability Check** — after the Lookup API returns no result in the chosen App Store Country, one Lookup API call per country in the Availability Countries to find where the App exists.
-- **Availability Countries** — `us`, `gb`, `in`, plus the User's timezone country. Stored in `config` as `app_store_fallback_countries` so it can change without a deploy.
-- **Store Badge** — the small label on a Card and in its caption: "Google Play" or "App Store · IN".
 
 ## Steps
 
-### Phase A — Contract and adapter
-1. Add `app_store` to the `store` enum in `contracts/listing.schema.json`.
-2. Record Lookup API and Reviews Feed responses for 3 App Store Apps (large, small, removed) in `contracts/fixtures/app_store/` with `job/record_fixtures.py`.
-3. Write the expected Listing and Review JSON for each recorded App Store fixture.
-4. Create `job/sources/app_store.py` with the class `AppStoreAdapter`.
-5. Parse the App Store Key into App Store Country and Track ID in `AppStoreAdapter`.
-6. Map Lookup API fields to the Listing: `trackName` → `name`, `sellerName` → `developer`, `artworkUrl512` → `icon_url`, `version`, `averageUserRating` → `rating`, `userRatingCount` → `review_count`, `fileSizeBytes` → `size`, `currentVersionReleaseDate` → `updated_at`, `releaseNotes` → `release_notes`. Set `installs_tier` to null.
-7. Map Reviews Feed entries to Reviews: `id.label` → `id`, `im:rating.label` → `stars`, `title.label` and `content.label` joined → `text`, `im:voteCount.label` → `thumbs_up`, `im:version.label` → `app_version`, `updated.label` → `created_at` in UTC.
-8. Stop reading Reviews Feed pages at the first Review older than `since_id`.
-9. Return `SourceError('not_found')` when the Lookup API returns `resultCount: 0`.
-10. Map HTTP 429 to `rate_limited`, HTTP 403 to `blocked`, bad JSON to `parse_failed`, other failures to `unavailable`.
-11. Make `AppStoreAdapter` pass the App Store Contract Fixtures in `job/tests/test_contracts.py`.
+### Phase A — Country foundation
+1. Create `contracts/countries/app_store.json` with every App Store storefront code.
+2. Create `contracts/countries/google_play.json` with every Google Play country code.
+3. Create `web/src/lib/timezones.ts` with the timezone → country map generated from IANA `zone1970.tab`.
+4. Create `db/008_store_country.sql`.
+5. Add the columns `users.timezone_set boolean not null default false`, `users.saved_country text` and `users.pending jsonb`.
+6. Set `timezone_set = true` for Users whose timezone differs from `Asia/Kolkata` (they changed it themselves).
+7. Change every foreign key that references `apps (package)` to `on update cascade`.
+8. Add a check that `apps.package` matches `^(play|ios):[a-z]{2}:` and that its prefix agrees with `apps.store`.
+9. Rename every existing App Key `<package>` to `play:us:<package>` (they were fetched from the US store).
+10. Set `timezone_set = true` in the `/settings` timezone handler.
+11. Apply `db/008_store_country.sql` to Supabase.
 
-### Phase B — Routing by Store
-12. Add `store_of(package)` to `job/sources/registry.py`: `app_store` for keys that start with `ios:`, else `google_play`.
-13. Make `registry.active_source()` and `registry.fallback_source()` take a Store.
-14. Select the App Store Active Source with the environment variable `APP_STORE_SOURCE`, default `itunes_api`.
-15. Pass the Store of each App to the registry in `job/fetch.py` and `job/on_demand.py`.
-16. Run the Store Source health check once per Store in `job/daily.py`.
+### Phase B — Google Play per country
+12. Add `parseAppKey(key)` to `job/sources/base.py`, returning Store, Store Country and store ID.
+13. Make `GooglePlayScraperAdapter` take the Store Country from the App Key for listings and reviews.
+14. Make the Node Play lookup in `web/src/sources/lookup.ts` take the Store Country.
+15. Re-record the Play Contract Fixtures with an explicit country.
 
-### Phase C — Database
-17. Create `db/008_app_store.sql`.
-18. Add the column `users.app_store_country text` with a check for two lower-case letters.
-19. Add a check on `apps.store` for `google_play` or `app_store`.
-20. Add a check that `apps.package` starts with `ios:` exactly when `apps.store` is `app_store`.
-21. Apply `db/008_app_store.sql` to Supabase.
+### Phase C — App Store adapter
+16. Add `app_store` to the `store` enum in `contracts/listing.schema.json`.
+17. Record Lookup API and Reviews Feed responses for 3 App Store Apps (large, small, removed) in `contracts/fixtures/app_store/` with `job/record_fixtures.py`.
+18. Write the expected Listing and Review JSON for each App Store fixture.
+19. Create `job/sources/app_store.py` with `AppStoreAdapter`.
+20. Map Lookup API fields to the Listing: `trackName` → `name`, `sellerName` → `developer`, `artworkUrl512` → `icon_url`, `version`, `averageUserRating` → `rating`, `userRatingCount` → `review_count`, `fileSizeBytes` → `size`, `currentVersionReleaseDate` → `updated_at`, `releaseNotes` → `release_notes`. Set `installs_tier` to null.
+21. Map Reviews Feed entries to Reviews: `id.label` → `id`, `im:rating.label` → `stars`, `title.label` and `content.label` joined → `text`, `im:voteCount.label` → `thumbs_up`, `im:version.label` → `app_version`, `updated.label` → `created_at` in UTC.
+22. Stop reading Reviews Feed pages at the first Review at or before `since_id`.
+23. Return `SourceError('not_found')` when the Lookup API returns `resultCount: 0`.
+24. Map HTTP 429 to `rate_limited`, 403 to `blocked`, bad JSON to `parse_failed`, other failures to `unavailable`.
+25. Make `AppStoreAdapter` pass the App Store Contract Fixtures.
+26. Route each App to its adapter by the App Key prefix in `job/sources/registry.py`. Select the App Store Active Source with `APP_STORE_SOURCE`, default `itunes_api`.
+27. Run the Store Source health check once per Store in `job/daily.py`.
+28. Add `AppStoreLookup` to `web/src/sources/lookup.ts` and make it pass the App Store Contract Fixtures.
 
-### Phase D — Webhook Function
-22. Add `detectStore(input)` to `web/src/sources/contract.ts`. Return `google_play` for `play.google.com` links, `market://` links and package names. Return `app_store` for `apps.apple.com` and `itunes.apple.com` links, `id<digits>` and 6–12 bare digits. Return null for anything else.
-23. Add `parseAppStore(input)` to `web/src/sources/contract.ts`. Accept `apps.apple.com/<country>/app/<slug>/id<track id>`, `apps.apple.com/app/id<track id>`, `itunes.apple.com/<country>/app/…/id<track id>`, `id<track id>` and bare digits. Return Track ID and App Store Country (null when the input has no country).
-24. Make `/add` call `detectStore` first and send the input to the Play flow or the App Store flow. Send `TEXT.addInvalid` when `detectStore` returns null.
-25. Add `AppStoreLookup` to `web/src/sources/lookup.ts` with `exists` and `getListing` on the Lookup API.
-26. Make `AppStoreLookup` pass the App Store Contract Fixtures in `web/test/lookup.test.ts`.
-27. In `/add`, use the App Store Country from the link when the link has one.
-28. In `/add`, use the Saved Country when the link has no App Store Country.
-29. In `/add`, send the Country Prompt when the link has no App Store Country and the User has no Saved Country.
-30. Put the timezone's country first in the Country Prompt (map `users.timezone` to a country), then India, US, UK, and "Other…".
-31. On "Other…", ask the User to send a two-letter code. Reject codes that are not App Store storefronts.
-32. Save the App Store Country the User picks in the Country Prompt as the Saved Country.
-33. Look up the App in the chosen App Store Country.
-34. When the Lookup API returns no result, run the Availability Check.
-35. When the Availability Check finds the App, send "<name> isn't on the App Store in <country>. It's available in:" with one button per country found and a Cancel button.
-36. When the User taps a country, use that App Store Country for this App only. Do not change the Saved Country.
-37. When the Availability Check finds the App in no country, send `TEXT.notFound`.
-38. Build the App Store Key and continue the normal `/add` flow with it.
-39. Add an "App Store country" row to `/settings` that changes the Saved Country. Existing App Store Apps keep their country.
-40. Show the Store Badge for each App in `/apps`.
-41. Add `/add` examples for App Store links to `TEXT.addUsage` and `TEXT.welcome`.
+### Phase D — `/add`
+29. Add `detectStore(input)` to `web/src/sources/contract.ts`.
+30. Add `parseAppStore(input)` and extend `parsePackage(input)` to return the store ID and the Link Country (null when the input has none).
+31. Send `TEXT.addInvalid` when `detectStore` returns null.
+32. Use the Link Country when the input has one.
+33. Use the Timezone Country when there is no Link Country and Timezone Set is true.
+34. Use the Saved Country when neither applies.
+35. Otherwise, save a Pending Reply `{kind: "add_country", input}` and send the Country Question.
+36. On a plain-text reply while a Pending Reply of kind `add_country` exists, read a two-letter code, trimmed and case-insensitive.
+37. When the code is not a Valid Country Code, reply "<code> isn't a country code I know. Send two letters, like IN, US or GB." and keep the Pending Reply.
+38. When the code is valid, save it as the Saved Country, clear the Pending Reply and continue the add with that country.
+39. Look up the App in the chosen Store Country.
+40. When the App is not found, run the Availability Check.
+41. When the Availability Check finds the App, reply "<name> isn't on <Store> in <country>. It's available in US, GB. Send one of these codes, or another country code." and save a Pending Reply `{kind: "add_country", input}`.
+42. When the Availability Check finds nothing, send `TEXT.notFound`.
+43. When the App is found, build the App Key, add the App to the Watchlist and send the Add Confirmation.
+44. Clear a Pending Reply when the User sends any command, and ignore Pending Replies past `expires_at`.
 
-### Phase E — Cards and captions
-42. Add the Store Badge to the Card header in `job/card/render.py`.
-43. Add the Store Badge to the caption head line.
-44. Show "App Store rating" instead of "rating" on App Store Cards. The Lookup API rating covers all versions in that country.
-45. Hide the installs stat on App Store Cards. Apple does not publish installs.
-46. Render one daily Card for an App Store App from the stub data and check it at 1200×630.
+### Phase E — Country Change
+45. Add a "🌍 Change country" button to each App in `/apps` and to the Add Confirmation.
+46. On tap, save a Pending Reply `{kind: "change_country", app_key}` and send "Which country should I track <name> in? It's <country> now. Send a two-letter code."
+47. Validate the reply as in steps 36–37.
+48. When the code equals the current Store Country, reply "<name> is already tracked in <country>." and clear the Pending Reply.
+49. Look up the App in the new country. When it is not found, run the Availability Check and reply as in steps 41–42. Keep the old country.
+50. When found, replace the Watchlist row's App Key with the new App Key in one transaction, keeping its paused state.
+51. Send "🌍 <name> moved from <old Store Badge> to <new Store Badge>. Ratings, reviews and trends now come from <country>; the trend starts fresh today."
+52. Start an On-demand Run for the new App Key so the User gets its first Update within minutes.
+53. Leave the old App in the database; the existing cleanup removes unwatched Apps.
 
-### Phase F — Dashboard and docs
-47. Add a Store column to the Apps page of the Dashboard.
-48. Split "Apps watched" by Store on the Overview page.
-49. Add App Store to README.md, PLAN.md Terms and the Bot description in `job/bot_setup.py`.
-50. Run the Bot Setup Workflow.
+### Phase F — Cards and captions
+54. Replace the fixed "Google Play" in `daily_caption` with the Store Badge.
+55. Add the Store Badge to the Card header in `job/card/render.py`.
+56. Hide the installs stat on App Store Cards.
+57. Render one daily Card for an App Store App and one for a Play App with a non-US country, and check both at 1200×630.
+
+### Phase G — Current Apps
+58. After step 11, add `play:in:<package>` for each current App and move every Watchlist row from `play:us:<package>` to `play:in:<package>`.
+59. Send each affected User one message: "Your apps now use India's Play Store ratings and reviews. Change any app's country in /apps."
+
+### Phase H — Dashboard and docs
+60. Add Store and Store Country columns to the Dashboard Apps page.
+61. Split "Apps watched" by Store on the Overview page.
+62. Add the country rules and App Store support to README.md, PLAN.md Terms, `TEXT.welcome`, `TEXT.addUsage` and the Bot description in `job/bot_setup.py`.
+63. Run the Bot Setup Workflow.
 
 ## Done when
 
-- `TEST_DATABASE_URL=… python -m pytest` passes, including App Store contract tests for the large, small and removed fixtures.
-- `cd web && npm test && npm run build` passes, including `parseAppStore` tests for all three link forms and the bare `id` form.
-- `/add https://apps.apple.com/in/app/whatsapp-messenger/id310633997` adds `ios:in:310633997` without a Country Prompt and confirms with "App Store · IN".
-- `/add com.whatsapp` goes to the Play flow and `/add 310633997` to the App Store flow, with no store question.
-- `/add id310633997` from a User with no Saved Country shows the Country Prompt with India first for an `Asia/Kolkata` User. One tap adds the App.
-- The same User adding a second bare `id` gets no Country Prompt.
-- `/add` of an App that is missing from the chosen country but exists in the US store offers a "🇺🇸 US" button. One tap adds `ios:us:<track id>`, and the Saved Country does not change.
-- `/add` of a Track ID that exists in no Availability Country replies with `TEXT.notFound`.
-- A User can watch `com.whatsapp` and `ios:in:310633997` at the same time; both count toward the 10-app limit.
-- The next Daily Job fetches the App Store App and its Reviews, writes a Snapshot, makes a Summary and a Card with the Store Badge, and the User receives it at Digest Time.
-- An App Store App that returns `resultCount: 0` raises the "App removed" Alert.
-- The Dashboard Apps page lists the App Store App with Store `app_store`.
-- Claude spend per App Store App per day is within 10% of a Google Play App with a similar review count.
+- `TEST_DATABASE_URL=… python -m pytest` and `cd web && npm test && npm run build` pass, including App Store contract tests (large, small, removed), `detectStore` and Link Country tests for every link form, and Pending Reply tests.
+- `/add https://apps.apple.com/us/app/whatsapp-messenger/id310633997` adds `ios:us:310633997` with no question and confirms "✅ Added WhatsApp Messenger · App Store · US".
+- `/add https://play.google.com/store/apps/details?id=com.zerodha.kite3&gl=IN` adds `play:in:com.zerodha.kite3` with no question.
+- `/add com.whatsapp` from a User with Timezone Set and timezone `Europe/London` adds `play:gb:com.whatsapp` with no question.
+- `/add 310633997` from a User without Timezone Set and without Saved Country gets the Country Question. Replying `xx` gets the invalid-code reply; replying `in` adds `ios:in:310633997` and saves `in` as the Saved Country.
+- A second `/add` with a bare ID from that User adds with no question.
+- Adding an App missing from the chosen country replies with the countries where it exists and adds nothing until the User sends one of them.
+- Tapping Change country on WhatsApp and replying `us` moves the Watchlist row to `ios:us:310633997`, sends the "moved from … to …" message, and a new Update arrives within 10 minutes.
+- After Phase G, the current Apps show "Google Play · IN" and their ratings match the Play Store app on an Indian phone.
+- The next Daily Job fetches Apps of both Stores and several countries, and every Update shows its Store Badge.
