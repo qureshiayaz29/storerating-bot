@@ -36,7 +36,7 @@ Add your app and a few competitors, and get one image card per app every morning
 
 Work is done once per app and shared by every user watching it, so cost grows with the number of apps, not users. Store access sits behind a swappable Store Source contract (`contracts/`), so the scraper can be replaced without touching the rest of the code.
 
-The full design, build steps and acceptance checks are in [PLAN.md](PLAN.md).
+The full design, build steps and acceptance checks are in [PLAN.md](PLAN.md). Next work is in [ROADMAP.md](ROADMAP.md).
 
 ## Privacy
 
