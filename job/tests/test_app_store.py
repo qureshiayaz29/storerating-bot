@@ -32,8 +32,8 @@ class FakeApple:
         self.urls.append(url)
         if "/lookup?" in url:
             return (self.case / "lookup.json").read_bytes()
-        page = int(url.split("/page=")[1].split("/")[0])
-        if self.empty_first and not any(u.split("?")[0] == url.split("?")[0] for u in self.urls[:-1]):
+        page = int(url.split("page=")[1].split("/")[0])
+        if self.empty_first and not any(f"page={page}/" in u and "/rss/" in u for u in self.urls[:-1]):
             return json.dumps({"feed": {"author": {"name": {"label": "iTunes Store"}}}}).encode()   # flaky empty answer
         pages = load(self.case, "reviews_pages.json") if (self.case / "reviews_pages.json").exists() else []
         if page > len(pages):
@@ -128,7 +128,7 @@ def test_an_empty_page_is_retried_before_it_counts_as_the_end():
     waits = []
     reviews = AppStoreAdapter(http_get=fake, sleep=waits.append).get_reviews("310633997", country="in")
     assert [r.id for r in reviews] == ["11000000001", "11000000002", "11000000003"]
-    assert any("?t=" in u for u in fake.urls) and waits
+    assert "sortBy=mostRecent" in fake.urls[1] and waits == [1.0, 1.0, 1.0]   # each empty answer retried once with another spelling
 
 
 def test_a_truly_empty_feed_gives_up_after_the_retries():
@@ -140,4 +140,5 @@ def test_a_truly_empty_feed_gives_up_after_the_retries():
             raise AssertionError("not used")
         return b'{"feed": {"author": {}}}'
     assert AppStoreAdapter(http_get=empty, sleep=lambda s: None).get_reviews("1", country="in") == []
-    assert len(calls) == 5   # first try + 4 retries, page 1 only
+    assert len(calls) == 8   # first try + 7 retries over 4 spellings, page 1 only
+    assert len({c.split('?')[0] for c in calls}) == 4

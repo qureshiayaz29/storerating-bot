@@ -20,9 +20,17 @@ from .base import Listing, Review, SourceError, validate_listing, validate_revie
 
 LOOKUP = "https://itunes.apple.com/lookup?id={id}&country={cc}&entity=software"
 REVIEWS = "https://itunes.apple.com/{cc}/rss/customerreviews/page={page}/id={id}/sortby=mostrecent/json"
+# Equivalent spellings of the same feed. Apple caches an empty answer per URL for a while,
+# so retries rotate through these instead of repeating one address.
+REVIEW_VARIANTS = (
+    REVIEWS,
+    "https://itunes.apple.com/{cc}/rss/customerreviews/page={page}/id={id}/sortBy=mostRecent/json",
+    "https://itunes.apple.com/{cc}/rss/customerreviews/id={id}/page={page}/sortby=mostrecent/json",
+    "https://itunes.apple.com/{cc}/rss/customerreviews/page={page}/id={id}/json",
+)
 MAX_PAGES = 10
-EMPTY_RETRIES = 4        # Apple's feed often answers an empty page that has reviews a moment later
-RETRY_WAIT = 1.5
+EMPTY_RETRIES = 7        # Apple's feed often answers an empty page that has reviews a moment later
+RETRY_WAIT = 1.0         # grows by 1 s per attempt: 1, 2, 3 … (about 28 s at most per page)
 UA = "StoreRating/1.0 (+https://github.com/qureshiayaz29/storerating-bot)"
 
 HttpGet = Callable[[str], bytes]   # returns the body; raises urllib.error.HTTPError / URLError
@@ -103,10 +111,10 @@ class AppStoreAdapter:
         """One feed page of review entries. Apple's feed intermittently answers an empty page
         (same URL, seconds apart: 0 then 50 reviews), so an empty page is retried with a
         cache-busting parameter before it counts as the end."""
-        url = REVIEWS.format(cc=cc, page=page, id=package)
         for attempt in range(1 + EMPTY_RETRIES):
+            url = REVIEW_VARIANTS[attempt % len(REVIEW_VARIANTS)].format(cc=cc, page=page, id=package)
             try:
-                data = self._json(package, url if attempt == 0 else f"{url}?t={time.time_ns()}")
+                data = self._json(package, url if attempt < len(REVIEW_VARIANTS) else f"{url}?t={time.time_ns()}")
             except SourceError as e:
                 if e.reason == "not_found":   # past the last page
                     return []
@@ -118,7 +126,7 @@ class AppStoreAdapter:
             if reviews:
                 return reviews
             if attempt < EMPTY_RETRIES:
-                self._sleep(RETRY_WAIT)
+                self._sleep(RETRY_WAIT * (attempt + 1))
         return []
 
     def _json(self, package: str, url: str) -> dict:
