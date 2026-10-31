@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -20,6 +21,8 @@ from .base import Listing, Review, SourceError, validate_listing, validate_revie
 LOOKUP = "https://itunes.apple.com/lookup?id={id}&country={cc}&entity=software"
 REVIEWS = "https://itunes.apple.com/{cc}/rss/customerreviews/page={page}/id={id}/sortby=mostrecent/json"
 MAX_PAGES = 10
+EMPTY_RETRIES = 4        # Apple's feed often answers an empty page that has reviews a moment later
+RETRY_WAIT = 1.5
 UA = "StoreRating/1.0 (+https://github.com/qureshiayaz29/storerating-bot)"
 
 HttpGet = Callable[[str], bytes]   # returns the body; raises urllib.error.HTTPError / URLError
@@ -34,9 +37,10 @@ def _default_get(url: str) -> bytes:
 class AppStoreAdapter:
     name = "itunes_api"
 
-    def __init__(self, http_get: HttpGet | None = None, country: str = "us") -> None:
+    def __init__(self, http_get: HttpGet | None = None, country: str = "us", sleep=time.sleep) -> None:
         self._get = http_get or _default_get
         self._country = country
+        self._sleep = sleep
 
     # --- contract -------------------------------------------------------
 
@@ -72,16 +76,7 @@ class AppStoreAdapter:
         cc = country or self._country
         out: list[Review] = []
         for page in range(1, MAX_PAGES + 1):
-            try:
-                data = self._json(package, REVIEWS.format(cc=cc, page=page, id=package))
-            except SourceError as e:
-                if e.reason == "not_found":   # past the last page, or no reviews in this country
-                    break
-                raise
-            entries = (data.get("feed") or {}).get("entry") or []
-            if isinstance(entries, dict):     # a single entry comes as an object
-                entries = [entries]
-            reviews = [e for e in entries if "im:rating" in e]   # older feeds put app info first
+            reviews = self._page(package, cc, page)
             if not reviews:
                 break
             for raw in reviews:
@@ -103,6 +98,28 @@ class AppStoreAdapter:
             raise
 
     # --- helpers --------------------------------------------------------
+
+    def _page(self, package: str, cc: str, page: int) -> list[dict]:
+        """One feed page of review entries. Apple's feed intermittently answers an empty page
+        (same URL, seconds apart: 0 then 50 reviews), so an empty page is retried with a
+        cache-busting parameter before it counts as the end."""
+        url = REVIEWS.format(cc=cc, page=page, id=package)
+        for attempt in range(1 + EMPTY_RETRIES):
+            try:
+                data = self._json(package, url if attempt == 0 else f"{url}?t={time.time_ns()}")
+            except SourceError as e:
+                if e.reason == "not_found":   # past the last page
+                    return []
+                raise
+            entries = (data.get("feed") or {}).get("entry") or []
+            if isinstance(entries, dict):     # a single entry comes as an object
+                entries = [entries]
+            reviews = [e for e in entries if "im:rating" in e]   # older feeds put app info first
+            if reviews:
+                return reviews
+            if attempt < EMPTY_RETRIES:
+                self._sleep(RETRY_WAIT)
+        return []
 
     def _json(self, package: str, url: str) -> dict:
         try:

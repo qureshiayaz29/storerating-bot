@@ -25,14 +25,16 @@ def load(case: Path, name: str):
 class FakeApple:
     """Replays a fixture case: the Lookup API, then RSS pages; 404 past the last page."""
 
-    def __init__(self, case: Path) -> None:
-        self.case, self.urls = case, []
+    def __init__(self, case: Path, empty_first: bool = False) -> None:
+        self.case, self.urls, self.empty_first = case, [], empty_first
 
     def __call__(self, url: str) -> bytes:
         self.urls.append(url)
         if "/lookup?" in url:
             return (self.case / "lookup.json").read_bytes()
         page = int(url.split("/page=")[1].split("/")[0])
+        if self.empty_first and not any(u.split("?")[0] == url.split("?")[0] for u in self.urls[:-1]):
+            return json.dumps({"feed": {"author": {"name": {"label": "iTunes Store"}}}}).encode()   # flaky empty answer
         pages = load(self.case, "reviews_pages.json") if (self.case / "reviews_pages.json").exists() else []
         if page > len(pages):
             raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(b""))
@@ -43,7 +45,7 @@ class FakeApple:
 def test_listing_and_reviews_match_the_contract(case):
     meta = load(case, "case.json")
     fake = FakeApple(case)
-    a = AppStoreAdapter(http_get=fake)
+    a = AppStoreAdapter(http_get=fake, sleep=lambda s: None)
     assert a.get_listing(meta["package"], country=meta["country"]).to_dict() == load(case, "expected_listing.json")
     assert [r.to_dict() for r in a.get_reviews(meta["package"], country=meta["country"])] == load(case, "expected_reviews.json")
     assert f"country={meta['country']}" in fake.urls[0] and f"/{meta['country']}/rss/" in fake.urls[1]
@@ -51,13 +53,13 @@ def test_listing_and_reviews_match_the_contract(case):
 
 def test_reviews_stop_at_since_id_and_limit():
     case = FIXTURES / "large"
-    a = AppStoreAdapter(http_get=FakeApple(case))
+    a = AppStoreAdapter(http_get=FakeApple(case), sleep=lambda s: None)
     assert [r.id for r in a.get_reviews("310633997", since_id="11000000002", country="in")] == ["11000000001"]
     assert len(a.get_reviews("310633997", limit=2, country="in")) == 2
 
 
 def test_missing_app_is_not_found():
-    a = AppStoreAdapter(http_get=FakeApple(FIXTURES / "removed"))
+    a = AppStoreAdapter(http_get=FakeApple(FIXTURES / "removed"), sleep=lambda s: None)
     with pytest.raises(SourceError) as e:
         a.get_listing("999999999", country="in")
     assert e.value.reason == "not_found" and "IN" in e.value.detail
@@ -119,3 +121,23 @@ def test_registry_builds_both_stores(monkeypatch):
     monkeypatch.delenv("APP_STORE_SOURCE", raising=False)
     r = registry.active_source()
     assert r.name_for("play:us:x.y") == "stub" and r.name_for("ios:us:1") == "itunes_api"
+
+
+def test_an_empty_page_is_retried_before_it_counts_as_the_end():
+    fake = FakeApple(FIXTURES / "large", empty_first=True)
+    waits = []
+    reviews = AppStoreAdapter(http_get=fake, sleep=waits.append).get_reviews("310633997", country="in")
+    assert [r.id for r in reviews] == ["11000000001", "11000000002", "11000000003"]
+    assert any("?t=" in u for u in fake.urls) and waits
+
+
+def test_a_truly_empty_feed_gives_up_after_the_retries():
+    calls = []
+
+    def empty(url):
+        calls.append(url)
+        if "/lookup?" in url:
+            raise AssertionError("not used")
+        return b'{"feed": {"author": {}}}'
+    assert AppStoreAdapter(http_get=empty, sleep=lambda s: None).get_reviews("1", country="in") == []
+    assert len(calls) == 5   # first try + 4 retries, page 1 only

@@ -107,6 +107,12 @@ if __name__ == "__main__":
         kind, package = arg.split("=", 1)
         if package.startswith("url:"):
             probe(kind, package[4:])
+        elif package.startswith("adapter:"):
+            from job.sources.registry import active_source
+            import time as _t
+            t0 = _t.monotonic()
+            got = active_source().get_reviews(package[8:], limit=500)
+            print(f"::notice title=adapter {kind}::{package[8:]} → {len(got)} reviews in {_t.monotonic() - t0:.1f}s")
         elif package.startswith("ios:"):
             record_app_store(out, kind, package)
         else:
