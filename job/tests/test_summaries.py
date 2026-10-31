@@ -217,3 +217,14 @@ def test_daily_context_lists_recent_themes(conn):
                     values ('p', 'daily', '2026-10-30', %s, '[]', 'v')""", (Jsonb([{"theme": "Charts slow"}]),))
     ctx = daily_context(conn, "p", date(2026, 10, 31))
     assert "Today: 2026-10-31" in ctx and "2026-10-30: Charts slow" in ctx and '"since"' in ctx
+
+
+def test_parse_moves_status_out_of_the_theme():
+    from job.summaries import parse
+    s = parse('{"complaints": [{"theme": "Charts slow or failing to load (persisting, since 2026-10-29)", "share": 37},'
+              ' {"theme": "Margin charges (persisting, since 2026", "share": 11}, {"theme": "Ads (new)", "share": 5}],'
+              ' "praise": [], "verdict": "v"}')
+    assert s.complaints[0] == {"theme": "Charts slow or failing to load", "share": 37, "example": "",
+                               "status": "persisting", "since": "2026-10-29"}
+    assert s.complaints[1]["theme"] == "Margin charges" and s.complaints[1]["status"] == "persisting"
+    assert "since" not in s.complaints[1] and s.complaints[2] == {"theme": "Ads", "share": 5, "example": "", "status": "new"}

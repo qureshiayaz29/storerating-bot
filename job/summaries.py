@@ -54,7 +54,11 @@ Use an empty list when a side has no reviews."""
 DAILY_CONTEXT = """Today: {today}
 Complaint themes from recent days:
 {history}
-For each complaint add "status": "persisting" and "since": "<first date it appears above>" when it matches one of these themes, otherwise "status": "new" and "since": "{today}"."""
+Add two more keys to every complaint object:
+- "status": "persisting" if it matches one of these themes, otherwise "new"
+- "since": the first date the theme appears above (YYYY-MM-DD), or "{today}" when new
+Keep "theme" to the 4–6 word theme only: never put the status, a date or brackets in it.
+Example: {{"theme": "Charts fail to load", "share": 40, "example": "…", "status": "persisting", "since": "2026-10-29"}}"""
 
 
 @dataclass
@@ -134,6 +138,10 @@ def prepare(out: FetchOutcome, batch: bool, context: str = "", allow_first_run: 
 
 # --- parsing -----------------------------------------------------------------------
 
+_STATUS_IN_THEME = re.compile(r"\s*[\(\[]\s*(new|persisting|fixed)\b(?:[,;]?\s*since\s*(\d{4}-\d{2}-\d{2}))?[^)\]]*[\)\]]?\s*$",
+                              re.IGNORECASE)
+
+
 def parse(text: str) -> Summary:
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
@@ -144,6 +152,10 @@ def parse(text: str) -> Summary:
         out = []
         for it in (data.get(key) or [])[:3]:
             theme = str(it.get("theme", "")).strip()
+            m = _STATUS_IN_THEME.search(theme)   # "Charts slow (persisting, since 2026-10-29)" → fields
+            if m:
+                theme = theme[:m.start()].strip()
+                it = {**it, "status": it.get("status") or m.group(1).lower(), "since": it.get("since") or m.group(2)}
             if not theme:
                 continue
             share = it.get("share")
