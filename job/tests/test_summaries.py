@@ -228,3 +228,11 @@ def test_parse_moves_status_out_of_the_theme():
                                "status": "persisting", "since": "2026-10-29"}
     assert s.complaints[1]["theme"] == "Margin charges" and s.complaints[1]["status"] == "persisting"
     assert "since" not in s.complaints[1] and s.complaints[2] == {"theme": "Ads", "share": 5, "example": "", "status": "new"}
+
+
+def test_parse_ignores_code_fences_and_trailing_text():
+    from job.summaries import parse
+    reply = ('```json\n{"complaints": [{"theme": "Excessive daily charges", "share": 20, "example": "x"}],\n'
+             ' "praise": [], "verdict": "Fees dominate."}\n```\n\nNote: {"extra": true} shares are approximate.')
+    s = parse(reply)
+    assert s.complaints[0]["theme"] == "Excessive daily charges" and s.verdict == "Fees dominate."

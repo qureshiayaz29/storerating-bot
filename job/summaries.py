@@ -143,10 +143,14 @@ _STATUS_IN_THEME = re.compile(r"\s*[\(\[]\s*(new|persisting|fixed)\b(?:[,;]?\s*s
 
 
 def parse(text: str) -> Summary:
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
+    # Read exactly one JSON object from the first "{": code fences and any text
+    # after the object (a note, a second object) are ignored.
+    start = text.find("{")
+    if start < 0:
         raise ValueError("no JSON object in reply")
-    data = json.loads(m.group(0))
+    data, _ = json.JSONDecoder().raw_decode(text[start:])
+    if not isinstance(data, dict):
+        raise ValueError("reply is not a JSON object")
 
     def items(key: str) -> list[dict]:
         out = []
